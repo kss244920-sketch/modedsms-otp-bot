@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+bot_database.db
+bot_database.db-journal
+crypto_invoices.json.tmp
+*.log
+.env
+*.env
+
