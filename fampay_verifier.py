@@ -20,7 +20,7 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger("fampay_verifier")
 
 GMAIL_USER = os.getenv("GMAIL_USER", "bruhgamer786@gmail.com")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "yivz yneg cgnt nhxd").replace(" ", "")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "okgphebsqpjlgipa").replace(" ", "")
 
 
 class FamPayVerifier:
@@ -111,26 +111,36 @@ class FamPayVerifier:
             mail.login(self.username, self.password)
             mail.select("INBOX", readonly=True)
 
-            months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-            dt = datetime.now() - timedelta(days=2)
-            since_date = f"{dt.day:02d}-{months[dt.month - 1]}-{dt.year}"
-            status, messages = mail.search(None, f'(SINCE "{since_date}")')
+            # Strategy 1: Direct ultra-fast search by UTR text in Gmail
+            direct_status, direct_msgs = mail.search(None, f'(TEXT "{clean_utr}")')
+            candidate_ids = []
+            if direct_status == "OK" and direct_msgs[0]:
+                candidate_ids = direct_msgs[0].split()
+                candidate_ids.reverse()
 
-            if status != "OK" or not messages[0]:
-                status, messages = mail.search(None, "ALL")
+            # Strategy 2: If direct search returns nothing, fall back to recent emails
+            if not candidate_ids:
+                months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                dt = datetime.now() - timedelta(days=2)
+                since_date = f"{dt.day:02d}-{months[dt.month - 1]}-{dt.year}"
+                status, messages = mail.search(None, f'(SINCE "{since_date}")')
 
-            if status != "OK" or not messages[0]:
-                return {
-                    "verified": False,
-                    "reason": "no_emails",
-                    "message": "No recent transaction emails found in Gmail.",
-                }
+                if status != "OK" or not messages[0]:
+                    status, messages = mail.search(None, "ALL")
 
-            msg_ids = messages[0].split()
-            latest_ids = msg_ids[-max_emails_to_check:]
-            latest_ids.reverse()
+                if status != "OK" or not messages[0]:
+                    return {
+                        "verified": False,
+                        "reason": "no_emails",
+                        "message": "No recent transaction emails found in Gmail.",
+                    }
 
-            for msg_id in latest_ids:
+                msg_ids = messages[0].split()
+                latest_ids = msg_ids[-max_emails_to_check:]
+                latest_ids.reverse()
+                candidate_ids = latest_ids
+
+            for msg_id in candidate_ids:
                 res, data = mail.fetch(msg_id, "(RFC822)")
                 if res != "OK" or not data or not data[0]:
                     continue
