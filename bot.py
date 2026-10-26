@@ -47,6 +47,8 @@ from payment_engine import (
     engine as crypto_engine,
     DEFAULT_PACKAGES as CRYPTO_PACKAGES,
 )
+from goagame_engine import goagame_gateway
+from ccpayment_engine import ccpayment_gateway
 
 # Setup logging
 logging.basicConfig(
@@ -838,10 +840,13 @@ async def show_wallet(query, user_id: int):
 
     keyboard = [
         [
-            InlineKeyboardButton("⚡ Deposit via CryptoBot (USDT)", callback_data="crypto_packages"),
+            InlineKeyboardButton("🎮 GoaGames Instant UPI (₹100+)", callback_data="goagame_packages"),
         ],
         [
-            InlineKeyboardButton("📲 Deposit via UPI QR (INR)", callback_data="upi_packages"),
+            InlineKeyboardButton("📲 Direct UPI QR (₹10+ GPay/PhonePe)", callback_data="upi_packages"),
+        ],
+        [
+            InlineKeyboardButton("⚡ Crypto Deposit (USDT / CryptoBot)", callback_data="crypto_packages"),
         ],
         [
             InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main")
@@ -853,10 +858,98 @@ async def show_wallet(query, user_id: int):
         f"💰 <b>Current Balance:</b> <b>₹{bal:.2f}</b>\n"
         f"📊 <b>Total Spent:</b> ₹{spent:.2f}\n\n"
         f"Choose your preferred instant deposit method:\n"
-        f"• <b>CryptoBot:</b> 100% automated instant deposit with USDT, TON, BTC\n"
-        f"• <b>UPI QR:</b> Scan & Pay via GPay, PhonePe, Paytm"
+        f"• <b>GoaGames Instant UPI:</b> Automated dynamic UPI checkout (₹100+)\n"
+        f"• <b>Direct UPI QR:</b> Scan & Pay for small amounts (₹10, ₹20, ₹50)\n"
+        f"• <b>Crypto (USDT / CryptoBot):</b> 100% automated instant crypto recharge"
     )
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def show_goagame_packages(query, user_id: int):
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ Add ₹100", callback_data="goagame_order:100"),
+            InlineKeyboardButton("➕ Add ₹200", callback_data="goagame_order:200"),
+        ],
+        [
+            InlineKeyboardButton("➕ Add ₹500", callback_data="goagame_order:500"),
+            InlineKeyboardButton("➕ Add ₹1,000", callback_data="goagame_order:1000"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet")
+        ]
+    ]
+
+    text = (
+        f"🎮 <b>GoaGames Instant UPI Gateway</b>\n\n"
+        f"• <b>Payment Mode:</b> Dynamic UPI-QR (ArbPay / GPay / PhonePe / Paytm)\n"
+        f"• <b>Instant Auto-Credit:</b> System checks payment status and credits balance automatically!\n"
+        f"• <b>Platform Limit:</b> Minimum deposit is ₹100.00\n\n"
+        f"<i>Select deposit amount to proceed:</i>"
+    )
+    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def create_goagame_deposit(query, context: ContextTypes.DEFAULT_TYPE, amount: float):
+    user_id = query.from_user.id
+    await query.edit_message_text("⏳ <i>Connecting to GoaGames UPI gateway, generating payment link...</i>", parse_mode="HTML")
+
+    ok, data, err = await goagame_gateway.create_deposit_order(amount)
+    if not ok:
+        keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet")]]
+        await query.edit_message_text(f"❌ <b>Gateway Error:</b> {err}\n\nPlease try again or use direct UPI QR.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        return
+
+    submit_url = data["submit_url"]
+    rec_num = data["recharge_number"]
+
+    keyboard = [
+        [InlineKeyboardButton("📲 Pay via UPI Page", url=submit_url)],
+        [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"goagame_check:{rec_num}:{amount}")],
+        [InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet")]
+    ]
+
+    text = (
+        f"🧾 <b>GoaGames UPI Order Generated!</b>\n\n"
+        f"💰 <b>Deposit Amount:</b> <b>₹{amount:.2f}</b>\n"
+        f"🆔 <b>Recharge ID:</b> <code>{rec_num}</code>\n"
+        f"⚡ <b>Gateway:</b> ArbPay UPI-QR\n\n"
+        f"<b>Instructions:</b>\n"
+        f"1. Tap <b>'📲 Pay via UPI Page'</b> to open UPI app / scan QR.\n"
+        f"2. Complete the payment of exact ₹{amount:.2f}.\n"
+        f"3. Return here and tap <b>'🔄 Check Payment Status'</b> (or wait, auto-detects in a few seconds)!"
+    )
+    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def handle_goagame_check(query, rec_num: str, amount: float, context: ContextTypes.DEFAULT_TYPE):
+    user_id = query.from_user.id
+    status, paid_amount = await goagame_gateway.check_order_status(rec_num)
+
+    if status == "SUCCESS":
+        credit_amt = paid_amount if paid_amount > 0 else amount
+        new_bal = await db.update_balance(
+            user_id,
+            credit_amt,
+            "DEPOSIT_GOAGAME",
+            f"GoaGames UPI Deposit #{rec_num}"
+        )
+        keyboard = [
+            [InlineKeyboardButton("💥 🎰 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu")],
+            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")]
+        ]
+        text = (
+            f"🎉 <b>Deposit Successful!</b>\n\n"
+            f"💰 <b>Amount Credited:</b> <b>₹{credit_amt:.2f}</b>\n"
+            f"💼 <b>New Wallet Balance:</b> <b>₹{new_bal:.2f}</b>\n"
+            f"🆔 <b>Order Reference:</b> <code>{rec_num}</code>\n\n"
+            f"<i>Your balance has been updated instantly. Enjoy our OTP services!</i>"
+        )
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    elif status == "FAILED":
+        await query.answer("❌ This order was cancelled or timed out. Please generate a new deposit order.", show_alert=True)
+    else:
+        await query.answer("⏳ Payment is still pending. If you just paid, please wait a few seconds and tap again!", show_alert=True)
 
 
 async def show_crypto_packages(query, user_id: int):
@@ -879,15 +972,42 @@ async def show_crypto_packages(query, user_id: int):
         InlineKeyboardButton("✏️ Custom Amount (INR / Tokens)", callback_data="crypto_custom")
     ])
     keyboard.append([
+        InlineKeyboardButton("🌐 CCPayment USDT Deposit Address", callback_data="ccpayment_address")
+    ])
+    keyboard.append([
         InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet")
     ])
 
     text = (
-        f"⚡ <b>Automated CryptoBot Deposit (@CryptoBot)</b>\n\n"
+        f"⚡ <b>Automated CryptoBot & CCPayment Deposit</b>\n\n"
         f"• <b>Exchange Rate:</b> 1 USD / USDT = ₹100 INR\n"
         f"• <b>Instant Settlement:</b> Verified automatically within 5 seconds!\n"
         f"• <b>Mathematical Half-Up rounding:</b> Zero loss guaranteed.\n\n"
-        f"<i>Select a top-up package or enter custom amount:</i>"
+        f"<i>Select a top-up package or generate direct CCPayment address:</i>"
+    )
+    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def handle_ccpayment_address(query, user_id: int):
+    await query.edit_message_text("⏳ <i>Generating CCPayment deposit address...</i>", parse_mode="HTML")
+    ok, data, err = await ccpayment_gateway.create_deposit_address(user_id, chain="TRC20", crypto="USDT")
+    keyboard = [[InlineKeyboardButton("🔙 Back to Packages", callback_data="crypto_packages")]]
+    if not ok:
+        await query.edit_message_text(
+            f"ℹ️ <b>CCPayment Notice:</b>\n{err}\n\n"
+            f"<i>💡 Tip: You can use @CryptoBot (USDT) above which is 100% active and working right now!</i>",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+        return
+
+    addr = data.get("address", "")
+    chain = data.get("chain", "TRC20")
+    text = (
+        f"🌐 <b>CCPayment USDT Deposit Address</b>\n\n"
+        f"• <b>Network:</b> <code>{chain}</code>\n"
+        f"• <b>Deposit Address:</b>\n<code>{addr}</code>\n\n"
+        f"⚠️ <i>Please send only USDT ({chain}) to this address. Funds will be credited after blockchain confirmation.</i>"
     )
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
@@ -1487,8 +1607,26 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "wallet":
         await show_wallet(query, user_id)
 
+    # GoaGames Instant UPI Gateway Flows
+    elif data == "goagame_packages":
+        await show_goagame_packages(query, user_id)
+
+    elif data.startswith("goagame_order:"):
+        amount = float(data.split(":")[1])
+        await create_goagame_deposit(query, context, amount)
+
+    elif data.startswith("goagame_check:"):
+        parts = data.split(":")
+        rec_num = parts[1]
+        amount = float(parts[2]) if len(parts) > 2 else 100.0
+        await handle_goagame_check(query, rec_num, amount, context)
+
+    # Crypto Flows
     elif data == "crypto_packages":
         await show_crypto_packages(query, user_id)
+
+    elif data == "ccpayment_address":
+        await handle_ccpayment_address(query, user_id)
 
     elif data.startswith("crypto_create:"):
         tokens = int(data.split(":")[1])
