@@ -34,10 +34,10 @@ TOKENS_PER_USD = float(os.environ.get("USDT_EXCHANGE_RATE", "94.0"))
 
 # Preset Recharge Packages based on ₹94 / $
 DEFAULT_PACKAGES = [
-    {"tokens": 94, "usd": 1.00, "label": "🟢 ₹94 ($1.00 USDT)"},
-    {"tokens": 188, "usd": 2.00, "label": "🔵 ₹188 ($2.00 USDT)"},
-    {"tokens": 470, "usd": 5.00, "label": "🟣 ₹470 ($5.00 USDT)"},
-    {"tokens": 940, "usd": 10.00, "label": "🟡 ₹940 ($10.00 USDT)"},
+    {"tokens": 94, "usd": 1.00, "label": "🟢 ₹94 ($1.00 USDT)", "style": "success"},
+    {"tokens": 188, "usd": 2.00, "label": "🔵 ₹188 ($2.00 USDT)", "style": "primary"},
+    {"tokens": 470, "usd": 5.00, "label": "🟣 ₹470 ($5.00 USDT)", "style": "success"},
+    {"tokens": 940, "usd": 10.00, "label": "🟡 ₹940 ($10.00 USDT)", "style": "primary"},
 ]
 
 

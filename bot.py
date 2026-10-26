@@ -51,6 +51,10 @@ from goagame_engine import goagame_gateway
 from ccpayment_engine import ccpayment_gateway
 from fampay_verifier import fampay_verifier
 
+import warnings
+from telegram.warnings import PTBUserWarning
+warnings.filterwarnings("ignore", category=PTBUserWarning)
+
 # Setup logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -200,22 +204,23 @@ def build_main_menu(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
         # Featured Colour Trading Offer Button
         [
-            InlineKeyboardButton("💥 🎰 🟢 🔴 🟣 Colour Trading Sites OTP (₹20 Only) 💥", callback_data="colour_trading_menu")
+            InlineKeyboardButton("💥 🎰 Colour Trading Sites OTP (₹20 Only) 💥", callback_data="colour_trading_menu", style="success")
         ],
         [
-            InlineKeyboardButton("📱 🌐 Buy General Number", callback_data="buy_countries:0"),
-            InlineKeyboardButton("⏳ ⚡ Active Orders", callback_data="active_orders"),
+            InlineKeyboardButton("📱 Buy General Number", callback_data="buy_countries:0", style="primary"),
+            InlineKeyboardButton("⏳ Active Orders", callback_data="active_orders", style="primary"),
         ],
         [
-            InlineKeyboardButton("💳 💰 My Wallet / Deposit", callback_data="wallet"),
-            InlineKeyboardButton("📋 📦 Order History", callback_data="history"),
+            InlineKeyboardButton("💳 My Wallet / Deposit", callback_data="wallet", style="success"),
+            InlineKeyboardButton("📋 Order History", callback_data="history", style="primary"),
         ],
         [
-            InlineKeyboardButton("ℹ️ 💬 Help & FAQ", callback_data="help"),
+            InlineKeyboardButton("ℹ️ Help & FAQ", callback_data="help", style="primary"),
+            InlineKeyboardButton("💬 Support (@OwAtom)", url="https://t.me/OwAtom", style="primary"),
         ]
     ]
     if is_admin(user_id):
-        buttons.append([InlineKeyboardButton("👑 ⚙️ Admin Control Panel", callback_data="admin_panel")])
+        buttons.append([InlineKeyboardButton("👑 Admin Suite", callback_data="admin_panel", style="danger")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -260,7 +265,8 @@ async def show_colour_trading_menu(query):
         row.append(
             InlineKeyboardButton(
                 f"{site['icon']} {site['name']} (₹20)",
-                callback_data=f"buy_colour_confirm:{site['code']}"
+                callback_data=f"buy_colour_confirm:{site['code']}",
+                style=site.get("style", "primary")
             )
         )
         if len(row) == 2:
@@ -269,7 +275,7 @@ async def show_colour_trading_menu(query):
     if row:
         keyboard.append(row)
 
-    keyboard.append([InlineKeyboardButton("🔙 🏠 Main Menu", callback_data="menu_main")])
+    keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")])
 
     text = (
         f"💥 <b>BIGGEST OFFER EVER</b> 💥\n\n"
@@ -291,17 +297,17 @@ async def show_colour_trading_confirm(query, site_code: str, user_id: int):
     keyboard = []
     if user_bal >= price:
         keyboard.append([
-            InlineKeyboardButton(f"🟢 ✅ Buy Now (₹{price:.2f})", callback_data=f"buy_colour_execute:{site_code}")
+            InlineKeyboardButton(f"🟢 ✅ Buy Now (₹{price:.2f})", callback_data=f"buy_colour_execute:{site_code}", style="success")
         ])
     else:
         diff = int(price - user_bal + 5)
         keyboard.append([
-            InlineKeyboardButton(f"💳 💰 Add Balance (Need ₹{price - user_bal:.2f})", callback_data="wallet")
+            InlineKeyboardButton(f"💳 💰 Add Balance (Need ₹{price - user_bal:.2f})", callback_data="wallet", style="primary")
         ])
 
     keyboard.append([
-        InlineKeyboardButton("🔙 🎰 Back to Sites", callback_data="colour_trading_menu"),
-        InlineKeyboardButton("🏠 🔙 Main Menu", callback_data="menu_main")
+        InlineKeyboardButton("🔙 Back to Sites", callback_data="colour_trading_menu", style="primary"),
+        InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")
     ])
 
     status_str = "✅ Balance Available" if user_bal >= price else "⚠️ Insufficient Balance"
@@ -403,12 +409,12 @@ async def execute_colour_purchase(query, site_code: str, user_id: int):
 
     # 4. Display Active Order Screen with REOTP support
     keyboard = [
-        [InlineKeyboardButton("🔄 ⚡ Check OTP", callback_data=f"order_status:{order_id}")],
+        [InlineKeyboardButton("🔄 Check OTP", callback_data=f"order_status:{order_id}", style="primary")],
         [
-            InlineKeyboardButton("🔁 📲 Request REOTP", callback_data=f"order_reotp:{order_id}"),
-            InlineKeyboardButton("🔴 ❌ Cancel & Refund", callback_data=f"order_cancel:{order_id}")
+            InlineKeyboardButton("🔁 Request REOTP", callback_data=f"order_reotp:{order_id}", style="success"),
+            InlineKeyboardButton("❌ Cancel & Refund", callback_data=f"order_cancel:{order_id}", style="danger")
         ],
-        [InlineKeyboardButton("🏠 🔙 Main Menu", callback_data="menu_main")]
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
     ]
 
     text = (
@@ -453,13 +459,13 @@ async def show_countries(query, page: int = 0):
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"buy_countries:{page - 1}"))
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"buy_countries:{page - 1}", style="primary"))
     nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"buy_countries:{page + 1}"))
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"buy_countries:{page + 1}", style="primary"))
     keyboard.append(nav_row)
 
-    keyboard.append([InlineKeyboardButton("🔙 🏠 Main Menu", callback_data="menu_main")])
+    keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")])
 
     text = (
         "🌍 <b>Select Country:</b>\n\n"
@@ -495,15 +501,15 @@ async def show_services(query, country_id: str, page: int = 0):
 
     nav_row = []
     if page > 0:
-        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"buy_services:{country_id}:{page - 1}"))
+        nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"buy_services:{country_id}:{page - 1}", style="primary"))
     nav_row.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="noop"))
     if page < total_pages - 1:
-        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"buy_services:{country_id}:{page + 1}"))
+        nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"buy_services:{country_id}:{page + 1}", style="primary"))
     keyboard.append(nav_row)
 
     keyboard.append([
-        InlineKeyboardButton("🔙 Back to Countries", callback_data="buy_countries:0"),
-        InlineKeyboardButton("🏠 Menu", callback_data="menu_main")
+        InlineKeyboardButton("🔙 Back to Countries", callback_data="buy_countries:0", style="primary"),
+        InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")
     ])
 
     text = (
@@ -526,16 +532,16 @@ async def show_purchase_confirm(query, country_id: str, service_code: str, user_
     keyboard = []
     if user_bal >= selling_price:
         keyboard.append([
-            InlineKeyboardButton("🟢 ✅ Confirm & Buy Number", callback_data=f"buy_execute:{country_id}:{service_code}")
+            InlineKeyboardButton("✅ Confirm & Buy Number", callback_data=f"buy_execute:{country_id}:{service_code}", style="success")
         ])
     else:
         keyboard.append([
-            InlineKeyboardButton("💳 💰 Add Funds to Wallet", callback_data="wallet")
+            InlineKeyboardButton("💳 Add Funds to Wallet", callback_data="wallet", style="primary")
         ])
 
     keyboard.append([
-        InlineKeyboardButton("🔙 📱 Back to Services", callback_data=f"buy_services:{country_id}:0"),
-        InlineKeyboardButton("🏠 🔙 Main Menu", callback_data="menu_main")
+        InlineKeyboardButton("🔙 Back to Services", callback_data=f"buy_services:{country_id}:0", style="primary"),
+        InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")
     ])
 
     status_indicator = "✅ Sufficient Funds" if user_bal >= selling_price else "⚠️ Insufficient Balance"
@@ -629,12 +635,12 @@ async def execute_purchase(query, country_id: str, service_code: str, user_id: i
     )
 
     keyboard = [
-        [InlineKeyboardButton("🔄 ⚡ Check Status / OTP", callback_data=f"order_status:{order_id}")],
+        [InlineKeyboardButton("🔄 Check Status / OTP", callback_data=f"order_status:{order_id}", style="primary")],
         [
-            InlineKeyboardButton("🔁 📲 Request REOTP", callback_data=f"order_reotp:{order_id}"),
-            InlineKeyboardButton("🔴 ❌ Cancel & Refund", callback_data=f"order_cancel:{order_id}")
+            InlineKeyboardButton("🔁 Request REOTP", callback_data=f"order_reotp:{order_id}", style="success"),
+            InlineKeyboardButton("❌ Cancel & Refund", callback_data=f"order_cancel:{order_id}", style="danger")
         ],
-        [InlineKeyboardButton("🏠 🔙 Main Menu", callback_data="menu_main")]
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
     ]
 
     text = (
@@ -657,9 +663,9 @@ async def show_active_orders(query, user_id: int):
     orders = await db.get_active_orders_for_user(user_id)
     if not orders:
         keyboard = [
-            [InlineKeyboardButton("💥 🎰 Colour Trading OTP (₹20)", callback_data="colour_trading_menu")],
-            [InlineKeyboardButton("📱 Buy General Number", callback_data="buy_countries:0")],
-            [InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main")]
+            [InlineKeyboardButton("💥 🎰 Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
+            [InlineKeyboardButton("📱 Buy General Number", callback_data="buy_countries:0", style="primary")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         await query.edit_message_text(
             text="📭 <b>No active orders found.</b>\nYou don't have any pending numbers waiting for OTP.",
@@ -681,11 +687,11 @@ async def show_active_orders(query, user_id: int):
             f"─────────────────────\n"
         )
         keyboard.append([
-            InlineKeyboardButton(f"🔍 Check {o['phone_number']}", callback_data=f"order_status:{o['order_id']}"),
-            InlineKeyboardButton("❌ Cancel", callback_data=f"order_cancel:{o['order_id']}")
+            InlineKeyboardButton(f"🔍 Check {o['phone_number']}", callback_data=f"order_status:{o['order_id']}", style="primary"),
+            InlineKeyboardButton("❌ Cancel", callback_data=f"order_cancel:{o['order_id']}", style="danger")
         ])
 
-    keyboard.append([InlineKeyboardButton("🔙 🏠 Main Menu", callback_data="menu_main")])
+    keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")])
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
@@ -703,8 +709,8 @@ async def handle_order_status(query, order_id: str):
             f"🔑 <b>OTP:</b> <code>{order['otp_code']}</code>\n"
         )
         keyboard = [
-            [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}")],
-            [InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main")]
+            [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}", style="success")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
@@ -734,9 +740,9 @@ async def handle_order_status(query, order_id: str):
             f"✅ Order completed successfully!"
         )
         keyboard = [
-            [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}")],
-            [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")]
+            [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}", style="success")],
+            [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu", style="primary")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
@@ -824,8 +830,8 @@ async def handle_order_cancel(query, order_id: str):
         f"💳 <b>Updated Balance:</b> ₹{new_bal:.2f}\n"
     )
     keyboard = [
-        [InlineKeyboardButton("💥 🎰 Colour Trading OTP (₹20)", callback_data="colour_trading_menu")],
-        [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")]
+        [InlineKeyboardButton("💥 🎰 Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
     ]
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
@@ -841,16 +847,16 @@ async def show_wallet(query, user_id: int):
 
     keyboard = [
         [
-            InlineKeyboardButton("🟢 🎮 GoaGames Instant UPI (₹100+)", callback_data="goagame_packages"),
+            InlineKeyboardButton("🎮 GoaGames Instant UPI (₹100+)", callback_data="goagame_packages", style="success"),
         ],
         [
-            InlineKeyboardButton("🔵 📲 Direct UPI QR (₹10 - ₹50 Auto-Approve)", callback_data="upi_packages"),
+            InlineKeyboardButton("📲 Direct UPI QR (₹10 - ₹50 Auto-Approve)", callback_data="upi_packages", style="primary"),
         ],
         [
-            InlineKeyboardButton("🟣 ⚡ Crypto (USDT / CryptoBot @ ₹94)", callback_data="crypto_packages"),
+            InlineKeyboardButton("⚡ Crypto (USDT / CryptoBot @ ₹94)", callback_data="crypto_packages", style="success"),
         ],
         [
-            InlineKeyboardButton("🔙 🏠 Main Menu", callback_data="menu_main")
+            InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")
         ]
     ]
 
@@ -869,15 +875,15 @@ async def show_wallet(query, user_id: int):
 async def show_goagame_packages(query, user_id: int):
     keyboard = [
         [
-            InlineKeyboardButton("🟢 ➕ Add ₹100", callback_data="goagame_order:100"),
-            InlineKeyboardButton("🔵 ➕ Add ₹200", callback_data="goagame_order:200"),
+            InlineKeyboardButton("➕ Add ₹100", callback_data="goagame_order:100", style="success"),
+            InlineKeyboardButton("➕ Add ₹200", callback_data="goagame_order:200", style="primary"),
         ],
         [
-            InlineKeyboardButton("🟣 ➕ Add ₹500", callback_data="goagame_order:500"),
-            InlineKeyboardButton("🟡 ➕ Add ₹1,000", callback_data="goagame_order:1000"),
+            InlineKeyboardButton("➕ Add ₹500", callback_data="goagame_order:500", style="success"),
+            InlineKeyboardButton("➕ Add ₹1,000", callback_data="goagame_order:1000", style="primary"),
         ],
         [
-            InlineKeyboardButton("🔙 💼 Back to Wallet", callback_data="wallet")
+            InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
         ]
     ]
 
@@ -905,9 +911,9 @@ async def create_goagame_deposit(query, context: ContextTypes.DEFAULT_TYPE, amou
     rec_num = data["recharge_number"]
 
     keyboard = [
-        [InlineKeyboardButton("🟢 📲 Pay via UPI Page", url=submit_url)],
-        [InlineKeyboardButton("🔄 ⚡ Check Payment Status", callback_data=f"goagame_check:{rec_num}:{amount}")],
-        [InlineKeyboardButton("🔙 💼 Back to Wallet", callback_data="wallet")]
+        [InlineKeyboardButton("📲 Pay via UPI Page", url=submit_url, style="success")],
+        [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"goagame_check:{rec_num}:{amount}", style="primary")],
+        [InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")]
     ]
 
     text = (
@@ -936,8 +942,8 @@ async def handle_goagame_check(query, rec_num: str, amount: float, context: Cont
             f"GoaGames UPI Deposit #{rec_num}"
         )
         keyboard = [
-            [InlineKeyboardButton("💥 🎰 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")]
+            [InlineKeyboardButton("💥 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         text = (
             f"🎉 <b>Deposit Successful!</b>\n\n"
@@ -960,7 +966,8 @@ async def show_crypto_packages(query, user_id: int):
         row.append(
             InlineKeyboardButton(
                 pkg["label"],
-                callback_data=f"crypto_create:{pkg['tokens']}"
+                callback_data=f"crypto_create:{pkg['tokens']}",
+                style=pkg.get("style", "primary")
             )
         )
         if len(row) == 2:
@@ -970,13 +977,13 @@ async def show_crypto_packages(query, user_id: int):
         keyboard.append(row)
 
     keyboard.append([
-        InlineKeyboardButton("✏️ 💬 Custom Amount (INR / Tokens)", callback_data="crypto_custom")
+        InlineKeyboardButton("✏️ Custom Amount (INR / Tokens)", callback_data="crypto_custom", style="primary")
     ])
     keyboard.append([
-        InlineKeyboardButton("🌐 🔗 CCPayment USDT Deposit Address", callback_data="ccpayment_address")
+        InlineKeyboardButton("🌐 CCPayment USDT Deposit Address", callback_data="ccpayment_address", style="primary")
     ])
     keyboard.append([
-        InlineKeyboardButton("🔙 💼 Back to Wallet", callback_data="wallet")
+        InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
     ])
 
     text = (
@@ -1035,9 +1042,9 @@ async def create_crypto_invoice(query, context: ContextTypes.DEFAULT_TYPE, targe
     target_usd = res["target_usd"]
 
     keyboard = [
-        [InlineKeyboardButton("🟢 💳 Pay via CryptoBot", url=pay_url)],
-        [InlineKeyboardButton("🔄 ⚡ Check Payment Status", callback_data=f"crypto_check:{invoice_id}")],
-        [InlineKeyboardButton("🔙 💼 Back to Packages", callback_data="crypto_packages")]
+        [InlineKeyboardButton("💳 Pay via CryptoBot", url=pay_url, style="success")],
+        [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"crypto_check:{invoice_id}", style="primary")],
+        [InlineKeyboardButton("🔙 Back to Packages", callback_data="crypto_packages", style="danger")]
     ]
 
     text = (
@@ -1059,8 +1066,8 @@ async def handle_crypto_check(query, invoice_id: str):
     is_settled, msg, rec = crypto_engine.check_and_settle_invoice(invoice_id, db=db)
     if is_settled:
         keyboard = [
-            [InlineKeyboardButton("💥 🎰 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu")],
-            [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")]
+            [InlineKeyboardButton("💥 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         await query.edit_message_text(text=msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     else:
@@ -1070,18 +1077,18 @@ async def handle_crypto_check(query, invoice_id: str):
 async def show_upi_packages(query):
     keyboard = [
         [
-            InlineKeyboardButton("🟢 ➕ Add ₹10", callback_data="recharge_amount:10"),
-            InlineKeyboardButton("🔵 ➕ Add ₹20", callback_data="recharge_amount:20"),
+            InlineKeyboardButton("➕ Add ₹10", callback_data="recharge_amount:10", style="success"),
+            InlineKeyboardButton("➕ Add ₹20", callback_data="recharge_amount:20", style="primary"),
         ],
         [
-            InlineKeyboardButton("🟣 ➕ Add ₹50", callback_data="recharge_amount:50"),
-            InlineKeyboardButton("🟡 ➕ Add ₹100", callback_data="recharge_amount:100"),
+            InlineKeyboardButton("➕ Add ₹50", callback_data="recharge_amount:50", style="success"),
+            InlineKeyboardButton("➕ Add ₹100", callback_data="recharge_amount:100", style="primary"),
         ],
         [
-            InlineKeyboardButton("✏️ 💬 Custom UPI Amount", callback_data="recharge_custom"),
+            InlineKeyboardButton("✏️ Custom UPI Amount", callback_data="recharge_custom", style="primary"),
         ],
         [
-            InlineKeyboardButton("🔙 💼 Back to Wallet", callback_data="wallet")
+            InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
         ]
     ]
 
@@ -1119,8 +1126,8 @@ async def initiate_recharge(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     )
 
     keyboard = [
-        [InlineKeyboardButton("🟢 📝 Submit UTR / Ref Number", callback_data=f"submit_utr_btn:{amount}")],
-        [InlineKeyboardButton("🔙 💼 Back to Wallet", callback_data="wallet")]
+        [InlineKeyboardButton("📝 Submit UTR / Ref Number", callback_data=f"submit_utr_btn:{amount}", style="success")],
+        [InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")]
     ]
 
     context.user_data["pending_recharge_amount"] = amount
@@ -1282,8 +1289,8 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_name = update.effective_user.username or update.effective_user.first_name
         admin_keyboard = [
             [
-                InlineKeyboardButton(f"🟢 ✅ Approve ₹{amount:.2f}", callback_data=f"appr_rech:{req_id}"),
-                InlineKeyboardButton("🔴 ❌ Reject", callback_data=f"rej_rech:{req_id}")
+                InlineKeyboardButton(f"✅ Approve ₹{amount:.2f}", callback_data=f"appr_rech:{req_id}", style="success"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"rej_rech:{req_id}", style="danger")
             ]
         ]
         admin_text = (
@@ -1396,11 +1403,11 @@ async def show_admin_panel(query):
 
     keyboard = [
         [
-            InlineKeyboardButton("🔄 ⚡ Refresh Stats", callback_data="admin_panel"),
-            InlineKeyboardButton("📢 💬 Broadcast Message", callback_data="admin_broadcast"),
+            InlineKeyboardButton("🔄 Refresh Stats", callback_data="admin_panel", style="primary"),
+            InlineKeyboardButton("📢 Broadcast Message", callback_data="admin_broadcast", style="primary"),
         ],
         [
-            InlineKeyboardButton("🔙 🏠 Main Menu", callback_data="menu_main")
+            InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")
         ]
     ]
 
@@ -1551,7 +1558,7 @@ async def admin_broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def show_history(query, user_id: int):
     orders = await db.get_user_order_history(user_id, limit=8)
     if not orders:
-        keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main")]]
+        keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]]
         await query.edit_message_text("📋 <b>No past orders found.</b>", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
@@ -1567,7 +1574,7 @@ async def show_history(query, user_id: int):
             f"─────────────────────\n"
         )
 
-    keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main")]]
+    keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]]
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
@@ -1588,7 +1595,10 @@ async def show_help(query):
         "• Click <b>💳 My Wallet / Deposit</b>\n"
         "• Top up instantly using <b>CryptoBot (@CryptoBot)</b> or scan the <b>UPI QR Code</b>."
     )
-    keyboard = [[InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main")]]
+    keyboard = [
+        [InlineKeyboardButton("💬 Support (@OwAtom)", url="https://t.me/OwAtom", style="primary")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
+    ]
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
