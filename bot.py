@@ -49,6 +49,7 @@ from payment_engine import (
 )
 from goagame_engine import goagame_gateway
 from ccpayment_engine import ccpayment_gateway
+from fampay_verifier import fampay_verifier
 
 # Setup logging
 logging.basicConfig(
@@ -1207,25 +1208,74 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif waiting_for == "utr":
         amount = context.user_data.get("recharge_amount", 0.0)
-        utr = text
+        utr = text.strip()
         if len(utr) < 6:
             await update.message.reply_text("❌ Please enter a valid UTR / Transaction ID (at least 6-12 characters):")
             return
 
+        context.user_data["waiting_for"] = None
+
+        verifying_msg = await update.message.reply_text(
+            "🔍 <i>Checking FamPay transaction alert in Gmail... Please wait a few seconds...</i>",
+            parse_mode="HTML"
+        )
+
+        # Attempt Automated Verification via FamPay Gmail Alerts
+        verify_res = await fampay_verifier.verify_transaction(expected_amount=amount, utr=utr)
+
+        if verify_res.get("verified"):
+            try:
+                req_id = await db.create_recharge_request(user_id, amount, utr)
+                await db.process_recharge_request(req_id, True)
+            except Exception:
+                pass
+
+            new_bal = await db.update_balance(
+                user_id,
+                amount,
+                "DEPOSIT_FAMPAY",
+                f"Auto-verified FamPay UPI: {utr}"
+            )
+            success_text = (
+                f"🎉 <b>Payment Auto-Verified & Credited!</b>\n\n"
+                f"💰 <b>Amount Credited:</b> <b>+₹{amount:.2f}</b>\n"
+                f"💳 <b>Updated Wallet Balance:</b> <b>₹{new_bal:.2f}</b>\n"
+                f"🔢 <b>Verified UTR:</b> <code>{utr}</code>\n"
+                f"⚡ <b>Method:</b> FamPay Gmail Alert (Instant Auto-Credit)\n\n"
+                f"<i>Thank you! You can now purchase your OTPs instantly.</i>"
+            )
+            await verifying_msg.edit_text(success_text, parse_mode="HTML")
+
+            # Notify admins of automated approval
+            user_name = update.effective_user.username or update.effective_user.first_name
+            admin_text = (
+                f"⚡ <b>FamPay UPI Auto-Verified & Credited!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"👤 <b>User:</b> @{user_name} (<code>{user_id}</code>)\n"
+                f"💵 <b>Amount:</b> +₹{amount:.2f}\n"
+                f"🔢 <b>UTR:</b> <code>{utr}</code>\n"
+                f"💳 <b>Updated Balance:</b> ₹{new_bal:.2f}\n"
+                f"📧 <b>Alert Subject:</b> <i>{verify_res.get('subject', 'FamPay Credit')}</i>"
+            )
+            for admin_id in ADMIN_IDS:
+                try:
+                    await context.bot.send_message(chat_id=admin_id, text=admin_text, parse_mode="HTML")
+                except Exception:
+                    pass
+            return
+
+        # Fallback to manual admin approval if alert delayed or not found
         try:
             req_id = await db.create_recharge_request(user_id, amount, utr)
         except Exception:
-            await update.message.reply_text("⚠️ This UTR has already been submitted or is being processed.")
-            context.user_data["waiting_for"] = None
+            await verifying_msg.edit_text("⚠️ This UTR has already been submitted or is being processed.")
             return
 
-        context.user_data["waiting_for"] = None
-
-        await update.message.reply_text(
+        await verifying_msg.edit_text(
             f"✅ <b>Deposit Request Submitted!</b>\n\n"
             f"💰 Amount: ₹{amount:.2f}\n"
             f"🔢 UTR: <code>{utr}</code>\n\n"
-            f"Your request has been forwarded to the Admin for instant verification. You will be notified once credited!",
+            f"ℹ️ <i>FamPay alert not detected in Gmail yet (may take 30-60s). Request forwarded to Admin for 1-click verification!</i>",
             parse_mode="HTML"
         )
 
@@ -1252,6 +1302,7 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     parse_mode="HTML"
                 )
             except Exception as e:
+                logger.error(f"Failed to notify admin {admin_id}: {e}")
                 logger.error(f"Failed to notify admin {admin_id}: {e}")
 
     elif waiting_for == "broadcast_text":
