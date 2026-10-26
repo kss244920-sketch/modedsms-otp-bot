@@ -47,7 +47,7 @@ MIN_RECHARGE = float(os.getenv("MIN_RECHARGE", "10.0"))
 
 # FamPay Gmail Automated Verification (IMAP)
 GMAIL_USER = os.getenv("GMAIL_USER", "bruhgamer786@gmail.com")
-GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "yivz yneg cgnt nhxd")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD", "okgphebsqpjlgipa")
 
 # Active order timeout in minutes
 ORDER_TIMEOUT_MINUTES = int(os.getenv("ORDER_TIMEOUT_MINUTES", "20"))

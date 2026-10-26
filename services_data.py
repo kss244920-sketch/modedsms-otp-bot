@@ -6,16 +6,16 @@ SastaSMS uses standard SMS-Activate service codes and country IDs.
 COLOUR_TRADING_PRICE = 20.0  # Fixed 20 Rs price for Colour Trading Sites
 
 COLOUR_TRADING_SITES = [
-    {"code": "ct_jaiclub", "name": "Jai Club", "icon": "🎰", "service": "ot", "country": "22"},
-    {"code": "ct_jalwa", "name": "JALWA GAME", "icon": "🎲", "service": "ot", "country": "22"},
-    {"code": "ct_raja", "name": "RAJA GAMES", "icon": "👑", "service": "ot", "country": "22"},
-    {"code": "ct_in999", "name": "IN999", "icon": "🎯", "service": "ot", "country": "22"},
-    {"code": "ct_51games", "name": "51GAMES", "icon": "🎮", "service": "ot", "country": "22"},
-    {"code": "ct_okwin", "name": "OKWIN", "icon": "🏆", "service": "ot", "country": "22"},
-    {"code": "ct_tiranga", "name": "Tiranga Games", "icon": "🌈", "service": "ot", "country": "22"},
-    {"code": "ct_daman", "name": "Daman Games", "icon": "💎", "service": "ot", "country": "22"},
-    {"code": "ct_91club", "name": "91Club", "icon": "🍀", "service": "ot", "country": "22"},
-    {"code": "ct_other", "name": "Other Colour Trading", "icon": "🔥", "service": "ot", "country": "22"},
+    {"code": "ct_jaiclub", "name": "Jai Club", "icon": "🟢 🎰", "service": "ot", "country": "22"},
+    {"code": "ct_jalwa", "name": "JALWA GAME", "icon": "🔴 🎲", "service": "ot", "country": "22"},
+    {"code": "ct_raja", "name": "RAJA GAMES", "icon": "🟣 👑", "service": "ot", "country": "22"},
+    {"code": "ct_in999", "name": "IN999", "icon": "🟢 🎯", "service": "ot", "country": "22"},
+    {"code": "ct_51games", "name": "51GAMES", "icon": "🔴 🎮", "service": "ot", "country": "22"},
+    {"code": "ct_okwin", "name": "OKWIN", "icon": "🟣 🏆", "service": "ot", "country": "22"},
+    {"code": "ct_tiranga", "name": "Tiranga Games", "icon": "🟢 🌈", "service": "ot", "country": "22"},
+    {"code": "ct_daman", "name": "Daman Games", "icon": "🔴 💎", "service": "ot", "country": "22"},
+    {"code": "ct_91club", "name": "91Club", "icon": "🟣 🍀", "service": "ot", "country": "22"},
+    {"code": "ct_other", "name": "Other Colour Sites", "icon": "🔥 🌈", "service": "ot", "country": "22"},
 ]
 
 COLOUR_TRADING_MAP = {s["code"]: s for s in COLOUR_TRADING_SITES}
