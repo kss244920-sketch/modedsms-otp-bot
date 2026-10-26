@@ -29,36 +29,41 @@ INVOICES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cry
 # Fee surcharge percentage to ensure owner receives full target amount (3.0% gateway fee)
 DEFAULT_SURCHARGE_PCT = float(os.environ.get("CRYPTO_SURCHARGE_PCT", "3.0"))
 
-# Exchange rate: 1 USD / USDT = 100 Tokens / ₹100 INR (1 Token = ₹1 INR / $0.01 USD)
-TOKENS_PER_USD = 100
+# Exchange rate: 1 USD / USDT = 94.0 INR (Fixed from user specification: ₹94/$)
+TOKENS_PER_USD = float(os.environ.get("USDT_EXCHANGE_RATE", "94.0"))
 
-# Preset Recharge Packages
+# Preset Recharge Packages based on ₹94 / $
 DEFAULT_PACKAGES = [
-    {"tokens": 50, "usd": 0.50, "label": "₹50 (0.50 USDT)"},
-    {"tokens": 100, "usd": 1.00, "label": "₹100 ($1.00 USDT)"},
-    {"tokens": 200, "usd": 2.00, "label": "₹200 ($2.00 USDT)"},
-    {"tokens": 500, "usd": 5.00, "label": "₹500 ($5.00 USDT)"},
+    {"tokens": 94, "usd": 1.00, "label": "₹94 ($1.00 USDT)"},
+    {"tokens": 188, "usd": 2.00, "label": "₹188 ($2.00 USDT)"},
+    {"tokens": 470, "usd": 5.00, "label": "₹470 ($5.00 USDT)"},
+    {"tokens": 940, "usd": 10.00, "label": "₹940 ($10.00 USDT)"},
 ]
 
 
-def calculate_tokens_from_amount(amount_usd: Any) -> Tuple[Decimal, int, str]:
+def calculate_tokens_from_amount(amount_usd: Any) -> Tuple[Decimal, float, str, str]:
     """
-    Standard Mathematical Half-Up Rounding Rule (User Specification):
-    - Inspects the decimal value down to 2 decimal places using half-up math.
-    - If 3rd decimal digit is < 5 -> round down (e.g., 0.734 -> 0.73 -> 73 tokens/₹73).
-    - If 3rd decimal digit is >= 5 -> round up (e.g., 0.656 -> 0.66 -> 66 tokens, 0.87732 -> 0.88 -> 88 tokens).
+    Standard Mathematical Half-Up Rounding Rule at 1 USD = ₹94.00:
+    - Takes exact received amount from CryptoBot/network.
+    - Multiplies by 94.00 INR/USD.
+    - Applies Half-Up rounding to 2 decimal places.
+    - Produces 2-line simple words proof for the user.
     Returns:
-        (rounded_usd: Decimal, tokens: int, explanation: str)
+        (dec_usd, credited_inr, line1, line2)
     """
     try:
         dec = Decimal(str(amount_usd).strip())
     except Exception:
         dec = Decimal("0.00")
 
-    rounded = dec.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    tokens = int(rounded * TOKENS_PER_USD)
-    explanation = f"${dec} ➔ ${rounded} (Math Half-Up) = {tokens} ₹"
-    return rounded, max(0, tokens), explanation
+    raw_inr = dec * Decimal(str(TOKENS_PER_USD))
+    rounded_inr = raw_inr.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    # 2-line explanation logic in simple words with mathematical proof:
+    line1 = f"Received: ${dec} USDT × ₹{int(TOKENS_PER_USD)}/$ = ₹{raw_inr:.4f}"
+    line2 = f"Half-Up Math Rule: ₹{raw_inr:.4f} ➔ ₹{rounded_inr:.2f} credited fairly"
+
+    return dec, float(rounded_inr), line1, line2
 
 
 def calculate_invoice_amount_with_surcharge(target_usd: float, surcharge_pct: float = DEFAULT_SURCHARGE_PCT) -> Decimal:
@@ -239,12 +244,12 @@ class PaymentEngine:
 
         # Invoice is confirmed PAID!
         paid_amount_str = str(item.get("amount") or rec.get("invoice_amount") or "0")
-        
-        # Apply mathematical half-up rounding rule
-        rounded_usd, credited_tokens, math_explanation = calculate_tokens_from_amount(paid_amount_str)
+
+        # Apply mathematical half-up rounding rule with 2-line simple proof
+        dec_usd, credited_tokens, line1, line2 = calculate_tokens_from_amount(paid_amount_str)
 
         # Fallback check: ensure user gets at least target if full invoice paid
-        target_tokens = int(rec.get("target_tokens", 0))
+        target_tokens = float(rec.get("target_tokens", 0))
         if credited_tokens < target_tokens and float(paid_amount_str) >= float(rec.get("target_usd", 0)):
             credited_tokens = target_tokens
 
@@ -254,8 +259,6 @@ class PaymentEngine:
         # Credit balance in Database
         if db and user_id:
             try:
-                import asyncio
-                # Use synchronous method or update
                 new_balance = db._update_balance(
                     user_id,
                     float(credited_tokens),
@@ -271,18 +274,22 @@ class PaymentEngine:
             rec["settled_at"] = int(time.time())
             rec["received_amount"] = paid_amount_str
             rec["credited_tokens"] = credited_tokens
-            rec["math_explanation"] = math_explanation
+            rec["proof_line1"] = line1
+            rec["proof_line2"] = line2
             self.invoices[invoice_id] = rec
             self.save_db()
 
-        # Format transparent receipt
+        # Format transparent receipt screen with 2-line logic & proof
         receipt_text = (
             f"🎉 <b>Crypto Payment Successful & Verified!</b>\n\n"
             f"📥 <b>Net Amount Received:</b> <code>${paid_amount_str} USDT</code>\n"
-            f"🧮 <b>Calculation:</b> <code>{math_explanation}</code>\n"
-            f"💰 <b>Balance Credited:</b> <b>+₹{credited_tokens:.2f}</b>\n"
+            f"💵 <b>Exchange Rate:</b> <code>1 USDT = ₹{int(TOKENS_PER_USD)} INR</code>\n\n"
+            f"<b>🧾 Transparent Logic & Proof:</b>\n"
+            f"• {line1}\n"
+            f"• {line2}\n\n"
+            f"💰 <b>Final Amount Credited:</b> <b>+₹{credited_tokens:.2f}</b>\n"
             f"💳 <b>Updated Wallet Balance:</b> <b>₹{new_balance:.2f}</b>\n\n"
-            f"🧾 <b>CryptoBot Invoice ID:</b> <code>#{invoice_id}</code>\n"
+            f"🆔 <b>CryptoBot Invoice ID:</b> <code>#{invoice_id}</code>\n"
             f"⏰ <b>Verified Timestamp:</b> <code>{time.strftime('%Y-%m-%d %H:%M:%S')}</code>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<i>Zero-loss guarantee: 100% automated & protected.</i>"

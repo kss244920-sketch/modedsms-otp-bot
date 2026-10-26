@@ -11,6 +11,7 @@ SASTASMS_API_KEY = os.getenv("SASTASMS_API_KEY", "stp_c2d6b6181ea95c27a5d73a32df
 
 # CryptoBot Pay Token (@CryptoBot API)
 CRYPTO_PAY_TOKEN = os.getenv("CRYPTO_PAY_TOKEN", "655242:AAYmK4gRIBr2k4KL6WaVMDtwC2sXjUcXFKE")
+USDT_EXCHANGE_RATE = float(os.getenv("USDT_EXCHANGE_RATE", "94.0"))
 
 # CCPayment API Credentials (ccpayment.com)
 CCPAYMENT_APP_ID = os.getenv("CCPAYMENT_APP_ID", "D81uhnJkY2pG7inw")

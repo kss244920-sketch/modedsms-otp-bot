@@ -980,9 +980,9 @@ async def show_crypto_packages(query, user_id: int):
 
     text = (
         f"⚡ <b>Automated CryptoBot & CCPayment Deposit</b>\n\n"
-        f"• <b>Exchange Rate:</b> 1 USD / USDT = ₹100 INR\n"
+        f"• <b>Exchange Rate:</b> 1 USD / USDT = ₹94 INR\n"
         f"• <b>Instant Settlement:</b> Verified automatically within 5 seconds!\n"
-        f"• <b>Mathematical Half-Up rounding:</b> Zero loss guaranteed.\n\n"
+        f"• <b>Mathematical Half-Up rounding:</b> Exact ₹94 rate calculation.\n\n"
         f"<i>Select a top-up package or generate direct CCPayment address:</i>"
     )
     await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -1042,6 +1042,7 @@ async def create_crypto_invoice(query, context: ContextTypes.DEFAULT_TYPE, targe
     text = (
         f"🧾 <b>CryptoBot Invoice Generated!</b>\n\n"
         f"💰 <b>Credited Balance:</b> <b>₹{target_tokens:.2f}</b>\n"
+        f"💵 <b>Exchange Rate:</b> <code>1 USDT = ₹94 INR</code>\n"
         f"💵 <b>Target Value:</b> <code>${target_usd} USDT</code>\n"
         f"💳 <b>Invoice Total (incl. 3% gateway fee):</b> <b>${inv_amt} USDT</b>\n"
         f"🆔 <b>Invoice ID:</b> <code>#{invoice_id}</code>\n\n"
