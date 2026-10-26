@@ -46,6 +46,7 @@ from services_data import (
 from payment_engine import (
     engine as crypto_engine,
     DEFAULT_PACKAGES as CRYPTO_PACKAGES,
+    SUPPORTED_CRYPTO_ASSETS,
 )
 from goagame_engine import goagame_gateway
 from ccpayment_engine import ccpayment_gateway
@@ -192,6 +193,58 @@ def generate_upi_qr(upi_id: str, name: str, amount: float) -> io.BytesIO:
     return bio
 
 
+def generate_crypto_qr(text_data: str) -> io.BytesIO:
+    """Generate dynamic Crypto QR Code."""
+    qr = qrcode.QRCode(version=1, box_size=8, border=3)
+    qr.add_data(text_data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    bio = io.BytesIO()
+    img.save(bio, format="PNG")
+    bio.seek(0)
+    return bio
+
+
+async def safe_edit_or_send(query, text: str, reply_markup=None, parse_mode="HTML"):
+    """
+    Safely edits the current message, or if the current message is a photo/media,
+    deletes it and sends a clean new text message with the markup.
+    Guarantees back buttons and screen transitions never fail!
+    """
+    msg = query.message
+    bot = query.get_bot()
+    user_id = query.from_user.id
+    try:
+        if msg and (msg.photo or msg.video or msg.document):
+            try:
+                await msg.delete()
+            except Exception:
+                pass
+            return await bot.send_message(
+                chat_id=user_id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        else:
+            return await query.edit_message_text(
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+    except Exception as e:
+        logger.warning(f"safe_edit_or_send fallback to send_message: {e}")
+        try:
+            return await bot.send_message(
+                chat_id=user_id,
+                text=text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode
+            )
+        except Exception:
+            pass
+
+
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_IDS
 
@@ -247,7 +300,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
     elif update.callback_query:
-        await update.callback_query.message.edit_text(
+        await safe_edit_or_send(
+            update.callback_query,
             text=text,
             reply_markup=build_main_menu(user.id),
             parse_mode="HTML"
@@ -285,7 +339,7 @@ async def show_colour_trading_menu(query):
         f"🚀 <b>FAST • AFFORDABLE • 100% REFUND GUARANTEE</b>\n\n"
         f"<i>Select your Colour Trading platform below:</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def show_colour_trading_confirm(query, site_code: str, user_id: int):
@@ -324,7 +378,7 @@ async def show_colour_trading_confirm(query, site_code: str, user_id: int):
         f"• 20 Minutes Validity\n"
         f"• Auto-refund if no OTP received!"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def execute_colour_purchase(query, site_code: str, user_id: int):
@@ -426,7 +480,7 @@ async def execute_colour_purchase(query, site_code: str, user_id: int):
         f"⏳ <b>Status:</b> Waiting for SMS/OTP...\n"
         f"⏱️ <i>Validity: 20 minutes. As soon as the SMS arrives, the OTP will be displayed here automatically!</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 # -------------------------------------------------------------
@@ -471,7 +525,7 @@ async def show_countries(query, page: int = 0):
         "🌍 <b>Select Country:</b>\n\n"
         "Choose the country for which you need a virtual OTP number:"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def show_services(query, country_id: str, page: int = 0):
@@ -517,7 +571,7 @@ async def show_services(query, country_id: str, page: int = 0):
         f"Country: <b>{country_info['flag']} {country_info['name']}</b>\n\n"
         f"Select the application or service you want to verify:"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def show_purchase_confirm(query, country_id: str, service_code: str, user_id: int):
@@ -554,7 +608,7 @@ async def show_purchase_confirm(query, country_id: str, service_code: str, user_
         f"💳 <b>Your Balance:</b> ₹{user_bal:.2f} ({status_indicator})\n\n"
         f"⏱️ <i>Number will remain active for 20 minutes. If no OTP is received, the full amount is automatically refunded!</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def execute_purchase(query, country_id: str, service_code: str, user_id: int):
@@ -652,7 +706,7 @@ async def execute_purchase(query, country_id: str, service_code: str, user_id: i
         f"⏳ <b>Status:</b> Waiting for SMS/OTP...\n"
         f"⏱️ <i>Validity: 20 minutes. As soon as the SMS arrives, the OTP will be sent to you here automatically!</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 # -------------------------------------------------------------
@@ -692,7 +746,7 @@ async def show_active_orders(query, user_id: int):
         ])
 
     keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")])
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def handle_order_status(query, order_id: str):
@@ -712,7 +766,7 @@ async def handle_order_status(query, order_id: str):
             [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}", style="success")],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
-        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
     if order["status"] in ("CANCELLED", "EXPIRED"):
@@ -744,7 +798,7 @@ async def handle_order_status(query, order_id: str):
             [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu", style="primary")],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
-        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
     elif status_type == "CANCEL":
@@ -774,7 +828,7 @@ async def handle_order_status(query, order_id: str):
         f"⏱️ <b>Time Remaining:</b> {mins}m {secs}s\n\n"
         f"💡 <i>Tip: The OTP will be automatically delivered here the moment it arrives!</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     await query.answer("Checked! Still waiting for SMS...")
 
 
@@ -833,7 +887,7 @@ async def handle_order_cancel(query, order_id: str):
         [InlineKeyboardButton("💥 🎰 Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
         [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
     ]
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 # -------------------------------------------------------------
@@ -847,13 +901,13 @@ async def show_wallet(query, user_id: int):
 
     keyboard = [
         [
-            InlineKeyboardButton("🎮 GoaGames Instant UPI (₹100+)", callback_data="goagame_packages", style="success"),
+            InlineKeyboardButton("🎮 Merchant QR (Minimum ₹100)", callback_data="goagame_packages", style="success"),
         ],
         [
-            InlineKeyboardButton("📲 Direct UPI QR (₹10 - ₹50 Auto-Approve)", callback_data="upi_packages", style="primary"),
+            InlineKeyboardButton("📲 Direct UPI (Small amounts ₹10 - ₹100)", callback_data="upi_packages", style="primary"),
         ],
         [
-            InlineKeyboardButton("⚡ Crypto (USDT / CryptoBot @ ₹94)", callback_data="crypto_packages", style="success"),
+            InlineKeyboardButton("⚡ Crypto (USDT, BTC, TON, LTC, TRX @ ₹94)", callback_data="crypto_modes", style="success"),
         ],
         [
             InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")
@@ -864,12 +918,21 @@ async def show_wallet(query, user_id: int):
         f"💳 <b>My Wallet & Deposits</b>\n\n"
         f"💰 <b>Current Balance:</b> <b>₹{bal:.2f}</b>\n"
         f"📊 <b>Total Spent:</b> ₹{spent:.2f}\n\n"
-        f"Choose your preferred instant deposit method:\n"
-        f"• <b>GoaGames Instant UPI:</b> Automated dynamic UPI checkout (₹100+)\n"
-        f"• <b>Direct UPI QR:</b> Scan & Pay for small amounts (₹10, ₹20, ₹50)\n"
-        f"• <b>Crypto (USDT / CryptoBot):</b> 100% automated instant crypto recharge"
+        f"<b>Choose your preferred instant deposit method:</b>\n\n"
+        f"1. <b>🎮 Merchant QR (Minimum ₹100):</b>\n"
+        f"   • High-speed dynamic merchant QR checkout (₹100 to ₹10,000+)\n"
+        f"   • <b>0% Extra Fee</b> (100% full amount credited)\n"
+        f"   • Instant auto-credit via ArbPay / UPI apps!\n\n"
+        f"2. <b>📲 Direct UPI QR (₹10 - ₹100 Small Top-Ups):</b>\n"
+        f"   • For small instant top-ups (₹10 Min to ₹100 Max)\n"
+        f"   • <b>Small Top-Up Fee:</b> +₹3.00 fee per ₹10.00 recharge\n"
+        f"   • 100% Automated Gmail IMAP verification in seconds!\n\n"
+        f"3. <b>⚡ Crypto (USDT, BTC, TON, LTC, TRX @ ₹94/$):</b>\n"
+        f"   • 1 USD = ₹94.00 INR fixed rate + 3% gateway surcharge\n"
+        f"   • Multi-Coin options (USDT, Bitcoin, TON, Litecoin, Tron)\n"
+        f"   • Instant QR Code, countdown timer & automated settlement!"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def show_goagame_packages(query, user_id: int):
@@ -883,18 +946,22 @@ async def show_goagame_packages(query, user_id: int):
             InlineKeyboardButton("➕ Add ₹1,000", callback_data="goagame_order:1000", style="primary"),
         ],
         [
+            InlineKeyboardButton("✏️ Custom Amount (₹100+)", callback_data="goagame_custom", style="primary"),
+        ],
+        [
             InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
         ]
     ]
 
     text = (
-        f"🎮 <b>GoaGames Instant UPI Gateway</b>\n\n"
-        f"• <b>Payment Mode:</b> Dynamic UPI-QR (ArbPay / GPay / PhonePe / Paytm)\n"
+        f"🎮 <b>Merchant QR UPI Gateway (Minimum ₹100)</b>\n\n"
+        f"• <b>Payment Mode:</b> Dynamic Merchant UPI-QR (ArbPay / GPay / PhonePe / Paytm / BHIM)\n"
+        f"• <b>Processing Fee:</b> <b>0% (Zero Fee — 100% Full Credit)</b>\n"
         f"• <b>Instant Auto-Credit:</b> System checks payment status and credits balance automatically!\n"
-        f"• <b>Platform Limit:</b> Minimum deposit is ₹100.00\n\n"
-        f"<i>Select deposit amount to proceed:</i>"
+        f"• <b>Platform Limit:</b> Minimum deposit is ₹100.00 (No maximum limit)\n\n"
+        f"<i>Select deposit amount to generate dynamic merchant checkout:</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def create_goagame_deposit(query, context: ContextTypes.DEFAULT_TYPE, amount: float):
@@ -926,7 +993,7 @@ async def create_goagame_deposit(query, context: ContextTypes.DEFAULT_TYPE, amou
         f"2. Complete the payment of exact ₹{amount:.2f}.\n"
         f"3. Return here and tap <b>'🔄 Check Payment Status'</b> (or wait, auto-detects in a few seconds)!"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def handle_goagame_check(query, rec_num: str, amount: float, context: ContextTypes.DEFAULT_TYPE):
@@ -952,58 +1019,107 @@ async def handle_goagame_check(query, rec_num: str, amount: float, context: Cont
             f"🆔 <b>Order Reference:</b> <code>{rec_num}</code>\n\n"
             f"<i>Your balance has been updated instantly. Enjoy our OTP services!</i>"
         )
-        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
     elif status == "FAILED":
         await query.answer("❌ This order was cancelled or timed out. Please generate a new deposit order.", show_alert=True)
     else:
         await query.answer("⏳ Payment is still pending. If you just paid, please wait a few seconds and tap again!", show_alert=True)
 
 
-async def show_crypto_packages(query, user_id: int):
-    keyboard = []
-    row = []
-    for pkg in CRYPTO_PACKAGES:
-        row.append(
-            InlineKeyboardButton(
-                pkg["label"],
-                callback_data=f"crypto_create:{pkg['tokens']}",
-                style=pkg.get("style", "primary")
-            )
-        )
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
+async def show_crypto_modes(query, user_id: int):
+    keyboard = [
+        [
+            InlineKeyboardButton("🟢 USDT (TRC20 / TON / BEP20)", callback_data="crypto_packages:USDT", style="success"),
+        ],
+        [
+            InlineKeyboardButton("💎 TON (The Open Network)", callback_data="crypto_packages:TON", style="primary"),
+            InlineKeyboardButton("🟠 Bitcoin (BTC)", callback_data="crypto_packages:BTC", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("⚪ Litecoin (LTC - Low Fee)", callback_data="crypto_packages:LTC", style="success"),
+            InlineKeyboardButton("🔴 TRON (TRX)", callback_data="crypto_packages:TRX", style="danger"),
+        ],
+        [
+            InlineKeyboardButton("🌐 All-In-One Multi Coin (Any)", callback_data="crypto_packages:MULTI", style="success"),
+        ],
+        [
+            InlineKeyboardButton("🔗 CCPayment Direct USDT Address", callback_data="ccpayment_address", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
+        ]
+    ]
 
-    keyboard.append([
-        InlineKeyboardButton("✏️ Custom Amount (INR / Tokens)", callback_data="crypto_custom", style="primary")
-    ])
-    keyboard.append([
-        InlineKeyboardButton("🌐 CCPayment USDT Deposit Address", callback_data="ccpayment_address", style="primary")
-    ])
-    keyboard.append([
-        InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
-    ])
+    rates = crypto_engine.get_exchange_rates()
+    btc_rate = rates.get("BTC", 80000.0)
+    ton_rate = rates.get("TON", 1.22)
+    ltc_rate = rates.get("LTC", 56.0)
 
     text = (
-        f"⚡ <b>Automated CryptoBot & CCPayment Deposit</b>\n\n"
-        f"• <b>Exchange Rate:</b> 1 USD / USDT = ₹94 INR\n"
-        f"• <b>Instant Settlement:</b> Verified automatically within 5 seconds!\n"
-        f"• <b>Mathematical Half-Up rounding:</b> Exact ₹94 rate calculation.\n\n"
-        f"<i>Select a top-up package or generate direct CCPayment address:</i>"
+        f"⚡ <b>Crypto Deposit Hub — Select Coin Mode</b>\n\n"
+        f"<b>Transparent Pricing & Exchange Rules:</b>\n"
+        f"• <b>Fixed Dollar Rate:</b> <code>1 USD = ₹94.00 INR</code>\n"
+        f"• <b>3% Crypto Network Surcharge:</b> Covers blockchain gas & network processing\n"
+        f"• <b>Mathematical Half-Up Rule:</b> Exactly ₹94.00 credited per USD received\n"
+        f"• <b>Expiry Countdown:</b> Each invoice/QR is valid for <b>30 minutes</b>\n"
+        f"• <b>Instant Settlement:</b> Verified automatically on blockchain / Telegram within 5 seconds!\n\n"
+        f"<b>Live Coin Rates:</b>\n"
+        f"• 1 BTC ≈ ${btc_rate:,.2f} USD\n"
+        f"• 1 TON ≈ ${ton_rate:.2f} USD\n"
+        f"• 1 LTC ≈ ${ltc_rate:.2f} USD\n\n"
+        f"<i>Select your preferred crypto currency below:</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def show_crypto_packages(query, user_id: int, asset: str = "USDT"):
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ ₹94 ($1.00 USD)", callback_data=f"crypto_create:{asset}:94", style="success"),
+            InlineKeyboardButton("➕ ₹188 ($2.00 USD)", callback_data=f"crypto_create:{asset}:188", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("➕ ₹470 ($5.00 USD)", callback_data=f"crypto_create:{asset}:470", style="success"),
+            InlineKeyboardButton("➕ ₹940 ($10.00 USD)", callback_data=f"crypto_create:{asset}:940", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Custom Amount (INR / Tokens)", callback_data=f"crypto_custom:{asset}", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Coins", callback_data="crypto_modes", style="danger")
+        ]
+    ]
+
+    coin_names = {
+        "USDT": "USDT (Tether)",
+        "TON": "TON (The Open Network)",
+        "BTC": "Bitcoin (BTC)",
+        "LTC": "Litecoin (LTC)",
+        "TRX": "TRON (TRX)",
+        "MULTI": "Multi-Coin"
+    }
+    coin_name = coin_names.get(asset, asset)
+
+    text = (
+        f"⚡ <b>Deposit via {coin_name}</b>\n\n"
+        f"• <b>Exchange Rate:</b> <code>1 USD = ₹94.00 INR</code>\n"
+        f"• <b>Network Surcharge:</b> 3% included for network fees\n"
+        f"• <b>Validity:</b> 30 Minutes countdown per QR invoice\n\n"
+        f"<i>Select a top-up package or enter a custom amount:</i>"
+    )
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def handle_ccpayment_address(query, user_id: int):
-    await query.edit_message_text("⏳ <i>Generating CCPayment deposit address...</i>", parse_mode="HTML")
+    chat_id = query.message.chat_id
+    await safe_edit_or_send(query, "⏳ <i>Generating CCPayment TRC20 deposit address...</i>", parse_mode="HTML")
     ok, data, err = await ccpayment_gateway.create_deposit_address(user_id, chain="TRC20", crypto="USDT")
-    keyboard = [[InlineKeyboardButton("🔙 Back to Packages", callback_data="crypto_packages")]]
+    keyboard = [[InlineKeyboardButton("🔙 Back to Coins", callback_data="crypto_modes", style="danger")]]
     if not ok:
-        await query.edit_message_text(
-            f"ℹ️ <b>CCPayment Notice:</b>\n{err}\n\n"
-            f"<i>💡 Tip: You can use @CryptoBot (USDT) above which is 100% active and working right now!</i>",
+        await safe_edit_or_send(
+            query,
+            f"ℹ️ <b>CCPayment Gateway Status:</b>\n{err}\n\n"
+            f"💡 <i>Tip: You can use <b>@CryptoBot (USDT, TON, BTC, LTC, TRX)</b> which is 100% active, fast, and instant!</i>",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML"
         )
@@ -1011,24 +1127,41 @@ async def handle_ccpayment_address(query, user_id: int):
 
     addr = data.get("address", "")
     chain = data.get("chain", "TRC20")
-    text = (
-        f"🌐 <b>CCPayment USDT Deposit Address</b>\n\n"
-        f"• <b>Network:</b> <code>{chain}</code>\n"
-        f"• <b>Deposit Address:</b>\n<code>{addr}</code>\n\n"
-        f"⚠️ <i>Please send only USDT ({chain}) to this address. Funds will be credited after blockchain confirmation.</i>"
+    qr_bytes = generate_crypto_qr(addr)
+
+    caption = (
+        f"🌐 <b>CCPayment USDT Deposit Address & QR</b>\n\n"
+        f"🔹 <b>Network:</b> <code>{chain}</code>\n"
+        f"🔹 <b>Deposit Address:</b>\n<code>{addr}</code> (Tap to copy)\n\n"
+        f"💵 <b>Exchange Rate:</b> <code>1 USDT = ₹94.00 INR</code>\n"
+        f"⏱️ <b>Validity:</b> <b>30 Minutes</b>\n\n"
+        f"⚠️ <i>Please send only USDT ({chain}) to this address. Funds will be credited after 1 blockchain confirmation.</i>"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+    await query.get_bot().send_photo(
+        chat_id=chat_id,
+        photo=qr_bytes,
+        caption=caption,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
 
 
-async def create_crypto_invoice(query, context: ContextTypes.DEFAULT_TYPE, target_tokens: int):
+async def create_crypto_invoice(query, context: ContextTypes.DEFAULT_TYPE, target_tokens: int, asset: str = "USDT"):
     user_id = query.from_user.id
     chat_id = query.message.chat_id
 
-    # Call CryptoBot API
+    # Call CryptoBot API with multi-asset support
     res = crypto_engine.create_token_invoice(
         user_id=user_id,
         chat_id=chat_id,
         target_tokens=target_tokens,
+        asset=asset,
         bot_username="ModedSmSBot"
     )
 
@@ -1040,101 +1173,44 @@ async def create_crypto_invoice(query, context: ContextTypes.DEFAULT_TYPE, targe
     pay_url = res["pay_url"]
     inv_amt = res["invoice_amount"]
     target_usd = res["target_usd"]
+    crypto_qty = res.get("crypto_qty", f"${inv_amt} USD")
+
+    fee_usd = round(float(inv_amt) - float(target_usd), 2)
+    now_dt = datetime.now()
+    exp_dt = now_dt + timedelta(minutes=30)
+    exp_str = exp_dt.strftime("%I:%M %p")
+
+    # Generate QR Code image for the invoice pay URL
+    qr_bytes = generate_crypto_qr(pay_url)
 
     keyboard = [
-        [InlineKeyboardButton("💳 Pay via CryptoBot", url=pay_url, style="success")],
+        [InlineKeyboardButton(f"💳 Pay in Telegram ({asset})", url=pay_url, style="success")],
         [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"crypto_check:{invoice_id}", style="primary")],
-        [InlineKeyboardButton("🔙 Back to Packages", callback_data="crypto_packages", style="danger")]
+        [InlineKeyboardButton("🔙 Back to Coins", callback_data="crypto_modes", style="danger")]
     ]
-
-    text = (
-        f"🧾 <b>CryptoBot Invoice Generated!</b>\n\n"
-        f"💰 <b>Credited Balance:</b> <b>₹{target_tokens:.2f}</b>\n"
-        f"💵 <b>Exchange Rate:</b> <code>1 USDT = ₹94 INR</code>\n"
-        f"💵 <b>Target Value:</b> <code>${target_usd} USDT</code>\n"
-        f"💳 <b>Invoice Total (incl. 3% gateway fee):</b> <b>${inv_amt} USDT</b>\n"
-        f"🆔 <b>Invoice ID:</b> <code>#{invoice_id}</code>\n\n"
-        f"<b>Instructions:</b>\n"
-        f"1. Click <b>'💳 Pay via CryptoBot'</b> below to pay.\n"
-        f"2. After payment, click <b>'🔄 Check Payment Status'</b> (or wait, bot auto-detects in 5s)!\n"
-        f"3. Balance will be credited instantly."
-    )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-
-
-async def handle_crypto_check(query, invoice_id: str):
-    is_settled, msg, rec = crypto_engine.check_and_settle_invoice(invoice_id, db=db)
-    if is_settled:
-        keyboard = [
-            [InlineKeyboardButton("💥 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
-            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
-        ]
-        await query.edit_message_text(text=msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-    else:
-        await query.answer("Payment still pending. If you just paid, please wait a few seconds and tap again!", show_alert=True)
-
-
-async def show_upi_packages(query):
-    keyboard = [
-        [
-            InlineKeyboardButton("➕ Add ₹10", callback_data="recharge_amount:10", style="success"),
-            InlineKeyboardButton("➕ Add ₹20", callback_data="recharge_amount:20", style="primary"),
-        ],
-        [
-            InlineKeyboardButton("➕ Add ₹50", callback_data="recharge_amount:50", style="success"),
-            InlineKeyboardButton("➕ Add ₹100", callback_data="recharge_amount:100", style="primary"),
-        ],
-        [
-            InlineKeyboardButton("✏️ Custom UPI Amount", callback_data="recharge_custom", style="primary"),
-        ],
-        [
-            InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
-        ]
-    ]
-
-    text = (
-        f"📲 <b>UPI Deposit (GPay / PhonePe / Paytm / BHIM)</b>\n\n"
-        f"Select an amount to generate a dynamic UPI QR Code:"
-    )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-
-
-async def initiate_recharge(update: Update, context: ContextTypes.DEFAULT_TYPE, amount: float):
-    query = update.callback_query
-    user_id = update.effective_user.id
-
-    if amount < MIN_RECHARGE:
-        if query:
-            await query.answer(f"Minimum recharge amount is ₹{MIN_RECHARGE:.2f}", show_alert=True)
-        return
-
-    upi_id = await db.get_setting("upi_id", "your-upi@oksbi")
-    upi_name = await db.get_setting("upi_name", "OTP Service")
-
-    qr_bytes = generate_upi_qr(upi_id, upi_name, amount)
 
     caption = (
-        f"📲 <b>Deposit ₹{amount:.2f} via UPI</b>\n\n"
-        f"🔹 <b>UPI ID:</b> <code>{upi_id}</code> (Tap to copy)\n"
-        f"🔹 <b>Payee Name:</b> {upi_name}\n"
-        f"🔹 <b>Amount:</b> ₹{amount:.2f}\n\n"
-        f"<b>Instructions:</b>\n"
-        f"1. Scan the QR code or pay to the UPI ID.\n"
-        f"2. After payment, click <b>'📝 Submit UTR'</b> below.\n"
-        f"3. Send your 12-digit UPI Reference / UTR Number.\n"
-        f"<i>Your balance will be credited instantly upon approval!</i>"
+        f"🧾 <b>Crypto Invoice & QR Code Generated</b>\n\n"
+        f"💰 <b>Wallet Balance to Credit:</b> <b>₹{target_tokens:.2f}</b>\n"
+        f"💎 <b>Asset Mode:</b> <b>{asset}</b>\n"
+        f"💵 <b>Exchange Rate:</b> <code>1 USD = ₹94.00 INR</code>\n"
+        f"💵 <b>Base USD Value:</b> <code>${target_usd} USD</code>\n"
+        f"⚡ <b>Gateway Surcharge (3%):</b> <code>+${fee_usd:.2f} USD</code>\n"
+        f"💳 <b>Total to Pay:</b> <b>{crypto_qty}</b>\n\n"
+        f"⏱️ <b>Time Limit:</b> <b>30 Minutes (Expires at {exp_str} IST)</b>\n"
+        f"🆔 <b>Invoice ID:</b> <code>#{invoice_id}</code>\n\n"
+        f"<b>Payment Instructions:</b>\n"
+        f"1. Scan the QR code above or tap <b>'💳 Pay in Telegram'</b> below.\n"
+        f"2. Complete payment in CryptoBot / Telegram Wallet.\n"
+        f"3. Tap <b>'🔄 Check Payment Status'</b> (or wait, auto-detected & credited in 5s)!"
     )
 
-    keyboard = [
-        [InlineKeyboardButton("📝 Submit UTR / Ref Number", callback_data=f"submit_utr_btn:{amount}", style="success")],
-        [InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")]
-    ]
+    if query.message:
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
 
-    context.user_data["pending_recharge_amount"] = amount
-
-    chat_id = update.effective_chat.id
-    if query:
-        await query.message.delete()
     await context.bot.send_photo(
         chat_id=chat_id,
         photo=qr_bytes,
@@ -1144,17 +1220,139 @@ async def initiate_recharge(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     )
 
 
-async def ask_utr(query, context: ContextTypes.DEFAULT_TYPE, amount: float):
-    context.user_data["waiting_for"] = "utr"
-    context.user_data["recharge_amount"] = amount
+async def handle_crypto_check(query, invoice_id: str):
+    is_settled, msg, rec = crypto_engine.check_and_settle_invoice(invoice_id, db=db)
+    if is_settled:
+        keyboard = [
+            [InlineKeyboardButton("💥 Buy Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
+            [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
+        ]
+        await safe_edit_or_send(query, text=msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    else:
+        await query.answer("Payment still pending. If you just paid, please wait a few seconds and tap again!", show_alert=True)
+
+
+async def show_upi_packages(query):
+    keyboard = [
+        [
+            InlineKeyboardButton("➕ ₹10 (Pay ₹13)", callback_data="recharge_amount:10", style="success"),
+            InlineKeyboardButton("➕ ₹20 (Pay ₹26)", callback_data="recharge_amount:20", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("➕ ₹50 (Pay ₹65)", callback_data="recharge_amount:50", style="success"),
+            InlineKeyboardButton("➕ ₹100 (Pay ₹130)", callback_data="recharge_amount:100", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("✏️ Custom Amount (₹10 - ₹100)", callback_data="recharge_custom", style="primary"),
+        ],
+        [
+            InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")
+        ]
+    ]
 
     text = (
-        f"📝 <b>Submit UTR Number for ₹{amount:.2f}</b>\n\n"
-        f"Please send the <b>12-digit UPI Reference ID / UTR Number</b> as a text message here.\n"
-        f"Example: <code>429182736451</code>"
+        f"📲 <b>Direct UPI QR (Small Amounts ₹10 – ₹100)</b>\n\n"
+        f"• <b>Payment Mode:</b> Scan & Pay to FamPay UPI ID (<code>Piyushxcute@fam</code>)\n"
+        f"• <b>Automated Verification:</b> Instant Gmail IMAP alert matching!\n"
+        f"• <b>Limits:</b> Min ₹10.00 • Max ₹100.00\n"
+        f"• <b>Small Top-Up Fee:</b> <b>₹3.00 fee per ₹10.00 recharge</b>\n\n"
+        f"<b>Fee & Payable Breakdown:</b>\n"
+        f"• Add ₹10.00 ➔ Fee ₹3.00 ➔ <b>Pay ₹13.00</b>\n"
+        f"• Add ₹20.00 ➔ Fee ₹6.00 ➔ <b>Pay ₹26.00</b>\n"
+        f"• Add ₹50.00 ➔ Fee ₹15.00 ➔ <b>Pay ₹65.00</b>\n"
+        f"• Add ₹100.00 ➔ Fee ₹30.00 ➔ <b>Pay ₹130.00</b>\n\n"
+        f"<i>💡 Tip: For deposits ₹100 or higher with 0% fees, use <b>'Merchant QR'</b> in the wallet menu!</i>\n\n"
+        f"<i>Select an amount below to generate UPI QR code:</i>"
     )
-    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="wallet")]]
-    await query.edit_message_caption(caption=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def initiate_recharge(update: Update, context: ContextTypes.DEFAULT_TYPE, amount: float):
+    query = update.callback_query
+    user_id = update.effective_user.id
+
+    if amount < 10.0:
+        if query:
+            await query.answer("Minimum recharge for Direct UPI is ₹10.00", show_alert=True)
+        return
+    if amount > 100.0:
+        if query:
+            await query.answer("Maximum recharge for Direct UPI is ₹100.00. For ₹100+, please use Merchant QR!", show_alert=True)
+        return
+
+    # Extra fee calculation: ₹3.00 fee per ₹10.00
+    fee = round((amount / 10.0) * 3.0, 2)
+    total_pay = round(amount + fee, 2)
+
+    upi_id = await db.get_setting("upi_id", "Piyushxcute@fam")
+    upi_name = await db.get_setting("upi_name", "Piyush Store")
+
+    qr_bytes = generate_upi_qr(upi_id, upi_name, total_pay)
+
+    caption = (
+        f"📲 <b>Direct UPI Deposit (QR Generated)</b>\n\n"
+        f"💰 <b>Wallet Balance to Credit:</b> <b>₹{amount:.2f}</b>\n"
+        f"⚡ <b>Small Top-Up Fee (₹3 per ₹10):</b> <b>+₹{fee:.2f}</b>\n"
+        f"💳 <b>Total Amount to Pay:</b> <b>₹{total_pay:.2f}</b>\n\n"
+        f"🔹 <b>UPI ID:</b> <code>{upi_id}</code> (Tap to copy)\n"
+        f"🔹 <b>Payee Name:</b> {upi_name}\n\n"
+        f"<b>Payment Instructions:</b>\n"
+        f"1. Scan the QR code or pay exact <b>₹{total_pay:.2f}</b> via any UPI app (GPay / PhonePe / Paytm / FamApp).\n"
+        f"2. After payment completes, tap <b>'📝 Submit UTR / Ref Number'</b> below.\n"
+        f"3. Send your 12-digit UPI Reference / UTR Number in chat.\n"
+        f"⚡ <i>Automated Gmail IMAP system verifies the ₹{total_pay:.2f} alert and credits ₹{amount:.2f} to your wallet instantly!</i>"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("📝 Submit UTR / Ref Number", callback_data=f"submit_utr_btn:{amount}:{total_pay}", style="success")],
+        [InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")]
+    ]
+
+    context.user_data["pending_recharge_credit"] = amount
+    context.user_data["pending_recharge_pay"] = total_pay
+
+    chat_id = update.effective_chat.id
+    if query:
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+    await context.bot.send_photo(
+        chat_id=chat_id,
+        photo=qr_bytes,
+        caption=caption,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+
+
+async def ask_utr(query, context: ContextTypes.DEFAULT_TYPE, credit_amount: float, pay_amount: float):
+    context.user_data["waiting_for"] = "utr"
+    context.user_data["recharge_credit_amount"] = credit_amount
+    context.user_data["recharge_pay_amount"] = pay_amount
+
+    text = (
+        f"📝 <b>Submit UTR for ₹{pay_amount:.2f} Payment</b>\n\n"
+        f"💰 <b>Wallet Credit:</b> ₹{credit_amount:.2f}\n"
+        f"💳 <b>Amount Paid:</b> ₹{pay_amount:.2f}\n\n"
+        f"Please send the <b>12-digit UPI Reference ID / UTR Number</b> as a text message here.\n"
+        f"Example: <code>429182736451</code>\n\n"
+        f"<i>Bot will automatically check Gmail and credit your wallet in seconds!</i>"
+    )
+    keyboard = [[InlineKeyboardButton("❌ Cancel", callback_data="wallet", style="danger")]]
+    if query.message and query.message.photo:
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await query.get_bot().send_message(
+            chat_id=query.from_user.id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+    else:
+        await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1172,80 +1370,94 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Minimum deposit is ₹10. Please enter a valid amount:")
                 return
             context.user_data["waiting_for"] = None
-            res = crypto_engine.create_token_invoice(
-                user_id=user_id,
-                chat_id=update.effective_chat.id,
-                target_tokens=tokens,
-                bot_username="ModedSmSBot"
-            )
-            if not res.get("success"):
-                await update.message.reply_text(f"❌ Error generating invoice: {res.get('error')}")
-                return
-
-            inv_id = res["invoice_id"]
-            keyboard = [
-                [InlineKeyboardButton("💳 Pay via CryptoBot", url=res["pay_url"])],
-                [InlineKeyboardButton("🔄 Check Payment Status", callback_data=f"crypto_check:{inv_id}")],
-                [InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet")]
-            ]
-            await update.message.reply_text(
-                f"🧾 <b>CryptoBot Invoice Generated!</b>\n\n"
-                f"💰 <b>Credited Balance:</b> <b>₹{tokens:.2f}</b>\n"
-                f"💵 <b>Target:</b> <code>${res['target_usd']} USDT</code>\n"
-                f"💳 <b>Invoice Total:</b> <b>${res['invoice_amount']} USDT</b>\n\n"
-                f"Tap button below to pay via CryptoBot:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="HTML"
-            )
+            asset = context.user_data.get("crypto_custom_asset", "USDT")
+            
+            # Create a mock query-like object for create_crypto_invoice
+            class DummyQuery:
+                def __init__(self, msg, uid):
+                    self.message = msg
+                    self.from_user = update.effective_user
+                async def answer(self, *args, **kwargs):
+                    pass
+            dummy_q = DummyQuery(update.message, user_id)
+            await create_crypto_invoice(dummy_q, context, tokens, asset)
         except ValueError:
             await update.message.reply_text("❌ Please enter a valid number (e.g. 100):")
+        return
+
+    elif waiting_for == "goagame_custom_amount":
+        try:
+            amount = float(text)
+            if amount < 100.0:
+                await update.message.reply_text("❌ Minimum deposit for Merchant QR is ₹100. Please enter an amount of 100 or higher:")
+                return
+            context.user_data["waiting_for"] = None
+            class DummyQuery:
+                def __init__(self, msg, uid):
+                    self.message = msg
+                    self.from_user = update.effective_user
+                async def answer(self, *args, **kwargs):
+                    pass
+                async def edit_message_text(self, *args, **kwargs):
+                    return await update.message.reply_text(*args, **kwargs)
+            dummy_q = DummyQuery(update.message, user_id)
+            await create_goagame_deposit(dummy_q, context, amount)
+        except ValueError:
+            await update.message.reply_text("❌ Please enter a valid number (e.g. 250):")
         return
 
     elif waiting_for == "custom_recharge_amount":
         try:
             amount = float(text)
-            if amount < MIN_RECHARGE:
-                await update.message.reply_text(f"❌ Minimum recharge is ₹{MIN_RECHARGE:.2f}. Please enter a valid amount:")
+            if amount < 10.0:
+                await update.message.reply_text("❌ Minimum recharge for Direct UPI is ₹10.00. Please enter a valid amount (₹10 - ₹100):")
+                return
+            if amount > 100.0:
+                await update.message.reply_text("❌ Maximum recharge for Direct UPI is ₹100.00. For ₹100+, please use 'Merchant QR' with 0% extra fees!")
                 return
             context.user_data["waiting_for"] = None
             await initiate_recharge(update, context, amount)
         except ValueError:
-            await update.message.reply_text("❌ Please enter a valid number (e.g. 50 or 150):")
+            await update.message.reply_text("❌ Please enter a valid number (e.g. 50):")
         return
 
     elif waiting_for == "utr":
-        amount = context.user_data.get("recharge_amount", 0.0)
+        credit_amount = float(context.user_data.get("recharge_credit_amount", 10.0))
+        pay_amount = float(context.user_data.get("recharge_pay_amount", credit_amount))
         utr = text.strip()
         if len(utr) < 6:
-            await update.message.reply_text("❌ Please enter a valid UTR / Transaction ID (at least 6-12 characters):")
+            await update.message.reply_text("❌ Please enter a valid UTR / Transaction ID (at least 6-12 digits):")
             return
 
         context.user_data["waiting_for"] = None
 
         verifying_msg = await update.message.reply_text(
-            "🔍 <i>Checking FamPay transaction alert in Gmail... Please wait a few seconds...</i>",
+            f"🔍 <i>Checking FamPay transaction alert for ₹{pay_amount:.2f} in Gmail... Please wait a few seconds...</i>",
             parse_mode="HTML"
         )
 
-        # Attempt Automated Verification via FamPay Gmail Alerts
-        verify_res = await fampay_verifier.verify_transaction(expected_amount=amount, utr=utr)
+        # Attempt Automated Verification via FamPay Gmail Alerts for pay_amount
+        verify_res = await fampay_verifier.verify_transaction(expected_amount=pay_amount, utr=utr)
 
         if verify_res.get("verified"):
             try:
-                req_id = await db.create_recharge_request(user_id, amount, utr)
+                req_id = await db.create_recharge_request(user_id, credit_amount, utr)
                 await db.process_recharge_request(req_id, True)
             except Exception:
                 pass
 
             new_bal = await db.update_balance(
                 user_id,
-                amount,
+                credit_amount,
                 "DEPOSIT_FAMPAY",
-                f"Auto-verified FamPay UPI: {utr}"
+                f"Auto-verified FamPay UPI: {utr} (Paid ₹{pay_amount:.2f})"
             )
+            fee = round(pay_amount - credit_amount, 2)
+            fee_str = f" (incl. ₹{fee:.2f} fee @ ₹3/₹10)" if fee > 0 else ""
             success_text = (
                 f"🎉 <b>Payment Auto-Verified & Credited!</b>\n\n"
-                f"💰 <b>Amount Credited:</b> <b>+₹{amount:.2f}</b>\n"
+                f"💰 <b>Wallet Amount Credited:</b> <b>+₹{credit_amount:.2f}</b>\n"
+                f"🧾 <b>Total Paid:</b> ₹{pay_amount:.2f}{fee_str}\n"
                 f"💳 <b>Updated Wallet Balance:</b> <b>₹{new_bal:.2f}</b>\n"
                 f"🔢 <b>Verified UTR:</b> <code>{utr}</code>\n"
                 f"⚡ <b>Method:</b> FamPay Gmail Alert (Instant Auto-Credit)\n\n"
@@ -1259,7 +1471,8 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"⚡ <b>FamPay UPI Auto-Verified & Credited!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━\n"
                 f"👤 <b>User:</b> @{user_name} (<code>{user_id}</code>)\n"
-                f"💵 <b>Amount:</b> +₹{amount:.2f}\n"
+                f"💵 <b>Wallet Credited:</b> +₹{credit_amount:.2f}\n"
+                f"💳 <b>Amount Paid:</b> ₹{pay_amount:.2f}\n"
                 f"🔢 <b>UTR:</b> <code>{utr}</code>\n"
                 f"💳 <b>Updated Balance:</b> ₹{new_bal:.2f}\n"
                 f"📧 <b>Alert Subject:</b> <i>{verify_res.get('subject', 'FamPay Credit')}</i>"
@@ -1273,14 +1486,15 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Fallback to manual admin approval if alert delayed or not found
         try:
-            req_id = await db.create_recharge_request(user_id, amount, utr)
+            req_id = await db.create_recharge_request(user_id, credit_amount, utr)
         except Exception:
             await verifying_msg.edit_text("⚠️ This UTR has already been submitted or is being processed.")
             return
 
         await verifying_msg.edit_text(
             f"✅ <b>Deposit Request Submitted!</b>\n\n"
-            f"💰 Amount: ₹{amount:.2f}\n"
+            f"💰 Wallet Credit: ₹{credit_amount:.2f}\n"
+            f"💳 Paid: ₹{pay_amount:.2f}\n"
             f"🔢 UTR: <code>{utr}</code>\n\n"
             f"ℹ️ <i>FamPay alert not detected in Gmail yet (may take 30-60s). Request forwarded to Admin for 1-click verification!</i>",
             parse_mode="HTML"
@@ -1289,14 +1503,15 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_name = update.effective_user.username or update.effective_user.first_name
         admin_keyboard = [
             [
-                InlineKeyboardButton(f"✅ Approve ₹{amount:.2f}", callback_data=f"appr_rech:{req_id}", style="success"),
+                InlineKeyboardButton(f"✅ Approve ₹{credit_amount:.2f}", callback_data=f"appr_rech:{req_id}", style="success"),
                 InlineKeyboardButton("❌ Reject", callback_data=f"rej_rech:{req_id}", style="danger")
             ]
         ]
         admin_text = (
             f"🔔 <b>New Recharge Request #{req_id}</b>\n\n"
             f"👤 User: @{user_name} (ID: <code>{user_id}</code>)\n"
-            f"💵 Amount: <b>₹{amount:.2f}</b>\n"
+            f"💵 Wallet Credit: <b>₹{credit_amount:.2f}</b>\n"
+            f"💳 Amount Paid: <b>₹{pay_amount:.2f}</b>\n"
             f"🔢 UTR: <code>{utr}</code>\n\n"
             f"Verify payment and click Approve/Reject below:"
         )
@@ -1432,7 +1647,7 @@ async def show_admin_panel(query):
         f"• <code>/setupi &lt;upi_id&gt; &lt;name&gt;</code> - Set UPI ID\n"
         f"• <code>/broadcast &lt;message&gt;</code> - Send message to all"
     )
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 # -------------------------------------------------------------
@@ -1575,7 +1790,7 @@ async def show_history(query, user_id: int):
         )
 
     keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]]
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def show_help(query):
@@ -1599,7 +1814,7 @@ async def show_help(query):
         [InlineKeyboardButton("💬 Support (@OwAtom)", url="https://t.me/OwAtom", style="primary")],
         [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
     ]
-    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 # -------------------------------------------------------------
@@ -1677,6 +1892,16 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         amount = float(data.split(":")[1])
         await create_goagame_deposit(query, context, amount)
 
+    elif data == "goagame_custom":
+        context.user_data["waiting_for"] = "goagame_custom_amount"
+        keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")]]
+        await safe_edit_or_send(
+            query,
+            "✏️ <b>Enter Custom Amount for Merchant QR (INR):</b>\nMinimum deposit is ₹100.\n\nPlease reply with the amount (e.g. <code>250</code>):",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+
     elif data.startswith("goagame_check:"):
         parts = data.split(":")
         rec_num = parts[1]
@@ -1684,25 +1909,52 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         await handle_goagame_check(query, rec_num, amount, context)
 
     # Crypto Flows
+    elif data == "crypto_modes":
+        await show_crypto_modes(query, user_id)
+
+    elif data.startswith("crypto_packages:"):
+        asset = data.split(":")[1]
+        await show_crypto_packages(query, user_id, asset)
+
     elif data == "crypto_packages":
-        await show_crypto_packages(query, user_id)
+        await show_crypto_modes(query, user_id)
 
     elif data == "ccpayment_address":
         await handle_ccpayment_address(query, user_id)
 
     elif data.startswith("crypto_create:"):
-        tokens = int(data.split(":")[1])
-        await create_crypto_invoice(query, context, tokens)
+        parts = data.split(":")
+        if len(parts) >= 3:
+            asset = parts[1]
+            tokens = int(parts[2])
+        else:
+            asset = "USDT"
+            tokens = int(parts[1])
+        await create_crypto_invoice(query, context, tokens, asset)
 
     elif data.startswith("crypto_check:"):
         inv_id = data.split(":", 1)[1]
         await handle_crypto_check(query, inv_id)
 
+    elif data.startswith("crypto_custom:"):
+        asset = data.split(":")[1] if ":" in data else "USDT"
+        context.user_data["waiting_for"] = "crypto_custom_amount"
+        context.user_data["crypto_custom_asset"] = asset
+        keyboard = [[InlineKeyboardButton("🔙 Back to Coins", callback_data="crypto_modes", style="danger")]]
+        await safe_edit_or_send(
+            query,
+            f"✏️ <b>Enter Custom Amount for {asset} (INR / Tokens):</b>\nMinimum deposit is ₹10.\n\nPlease reply with the amount (e.g. <code>150</code>):",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+
     elif data == "crypto_custom":
         context.user_data["waiting_for"] = "crypto_custom_amount"
-        keyboard = [[InlineKeyboardButton("🔙 Back to Packages", callback_data="crypto_packages")]]
-        await query.edit_message_text(
-            "✏️ <b>Enter Custom Amount (INR / Tokens):</b>\nMinimum deposit is ₹10.\nPlease reply with the amount:",
+        context.user_data["crypto_custom_asset"] = "USDT"
+        keyboard = [[InlineKeyboardButton("🔙 Back to Coins", callback_data="crypto_modes", style="danger")]]
+        await safe_edit_or_send(
+            query,
+            "✏️ <b>Enter Custom Amount (INR / Tokens):</b>\nMinimum deposit is ₹10.\n\nPlease reply with the amount (e.g. <code>100</code>):",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML"
         )
@@ -1717,16 +1969,19 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
     elif data == "recharge_custom":
         context.user_data["waiting_for"] = "custom_recharge_amount"
-        keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet")]]
-        await query.edit_message_text(
-            f"✏️ <b>Enter Custom Amount (INR):</b>\nMinimum deposit is ₹{MIN_RECHARGE:.2f}.\nPlease reply with the amount:",
+        keyboard = [[InlineKeyboardButton("🔙 Back to Wallet", callback_data="wallet", style="danger")]]
+        await safe_edit_or_send(
+            query,
+            "✏️ <b>Enter Custom Amount for Direct UPI (INR):</b>\nMinimum: ₹10.00 • Maximum: ₹100.00\n\nPlease reply with the amount (e.g. <code>30</code>):",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML"
         )
 
     elif data.startswith("submit_utr_btn:"):
-        amount = float(data.split(":")[1])
-        await ask_utr(query, context, amount)
+        parts = data.split(":")
+        credit_amt = float(parts[1])
+        pay_amt = float(parts[2]) if len(parts) > 2 else credit_amt
+        await ask_utr(query, context, credit_amt, pay_amt)
 
     elif data == "history":
         await show_history(query, user_id)

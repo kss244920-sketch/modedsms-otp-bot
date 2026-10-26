@@ -32,12 +32,22 @@ DEFAULT_SURCHARGE_PCT = float(os.environ.get("CRYPTO_SURCHARGE_PCT", "3.0"))
 # Exchange rate: 1 USD / USDT = 94.0 INR (Fixed from user specification: ₹94/$)
 TOKENS_PER_USD = float(os.environ.get("USDT_EXCHANGE_RATE", "94.0"))
 
+# Supported Crypto Assets for Multi-Mode Deposit
+SUPPORTED_CRYPTO_ASSETS = [
+    {"code": "USDT", "name": "USDT (Tether)", "icon": "🟢", "desc": "TRC20 / TON / BEP20", "style": "success"},
+    {"code": "TON", "name": "TON (Telegram)", "icon": "💎", "desc": "The Open Network", "style": "primary"},
+    {"code": "BTC", "name": "Bitcoin (BTC)", "icon": "🟠", "desc": "Native Bitcoin", "style": "primary"},
+    {"code": "LTC", "name": "Litecoin (LTC)", "icon": "⚪", "desc": "Fast & Lowest Fee", "style": "success"},
+    {"code": "TRX", "name": "TRON (TRX)", "icon": "🔴", "desc": "TRON Network", "style": "danger"},
+    {"code": "MULTI", "name": "Multi-Coin Selector", "icon": "🌐", "desc": "USDT, BTC, TON, LTC, TRX", "style": "success"},
+]
+
 # Preset Recharge Packages based on ₹94 / $
 DEFAULT_PACKAGES = [
-    {"tokens": 94, "usd": 1.00, "label": "🟢 ₹94 ($1.00 USDT)", "style": "success"},
-    {"tokens": 188, "usd": 2.00, "label": "🔵 ₹188 ($2.00 USDT)", "style": "primary"},
-    {"tokens": 470, "usd": 5.00, "label": "🟣 ₹470 ($5.00 USDT)", "style": "success"},
-    {"tokens": 940, "usd": 10.00, "label": "🟡 ₹940 ($10.00 USDT)", "style": "primary"},
+    {"tokens": 94, "usd": 1.00, "label": "🟢 ₹94 ($1.00 USD)", "style": "success"},
+    {"tokens": 188, "usd": 2.00, "label": "🔵 ₹188 ($2.00 USD)", "style": "primary"},
+    {"tokens": 470, "usd": 5.00, "label": "🟣 ₹470 ($5.00 USD)", "style": "success"},
+    {"tokens": 940, "usd": 10.00, "label": "🟡 ₹940 ($10.00 USD)", "style": "primary"},
 ]
 
 
@@ -144,33 +154,93 @@ class PaymentEngine:
         """Validates API token credentials and fetches connected app info."""
         return self._api_call("getMe")
 
+    def get_exchange_rates(self) -> Dict[str, float]:
+        """Fetches live USD exchange rates for crypto coins from CryptoBot."""
+        now = time.time()
+        if hasattr(self, "_cached_rates") and hasattr(self, "_rates_time") and (now - self._rates_time < 120):
+            return self._cached_rates
+        resp = self._api_call("getExchangeRates")
+        rates = {}
+        if resp.get("ok"):
+            for item in resp.get("result", []):
+                if item.get("target") == "USD":
+                    try:
+                        rates[item["source"]] = float(item["rate"])
+                    except Exception:
+                        pass
+        if not rates:
+            rates = {"USDT": 1.0, "TON": 1.22, "BTC": 80000.0, "LTC": 56.0, "TRX": 0.33, "SOL": 100.0}
+        self._cached_rates = rates
+        self._rates_time = now
+        return rates
+
     # ─── Invoice Lifecycle ───
     def create_token_invoice(
         self,
         user_id: int,
         chat_id: int,
         target_tokens: int,
+        asset: str = "USDT",
         surcharge_pct: float = DEFAULT_SURCHARGE_PCT,
         bot_username: str = "ModedSmSBot"
     ) -> Dict[str, Any]:
         """
         Creates an invoice for target_tokens (1 Token = ₹1).
+        Supports multi-coin assets (USDT, TON, BTC, LTC, TRX, MULTI).
         Calculates required USD and applies surcharge so owner receives full net amount.
         """
         target_usd = round(target_tokens / TOKENS_PER_USD, 2)
-        invoice_amount = calculate_invoice_amount_with_surcharge(target_usd, surcharge_pct)
+        invoice_amount_usd = calculate_invoice_amount_with_surcharge(target_usd, surcharge_pct)
+        rates = self.get_exchange_rates()
 
-        payload = {
-            "asset": "USDT",
-            "amount": str(invoice_amount),
-            "description": f"OTP Bot ₹{target_tokens} Balance (User {user_id})",
-            "hidden_message": f"Thank you! ₹{target_tokens} balance has been credited to your OTP Bot account.",
-            "paid_btn_name": "callback",
-            "paid_btn_url": f"https://t.me/{bot_username}" if bot_username else "https://t.me/ModedSmSBot",
-            "allow_comments": False,
-            "allow_anonymous": True,
-            "expires_in": 3600  # 1 hour expiration
-        }
+        if asset == "MULTI":
+            payload = {
+                "currency_type": "fiat",
+                "fiat": "USD",
+                "amount": str(invoice_amount_usd),
+                "accepted_assets": "USDT,TON,BTC,LTC,TRX",
+                "description": f"ModedSmS ₹{target_tokens} Balance (User {user_id})",
+                "hidden_message": f"Thank you! ₹{target_tokens} balance has been credited to your OTP Bot account.",
+                "paid_btn_name": "callback",
+                "paid_btn_url": f"https://t.me/{bot_username}" if bot_username else "https://t.me/ModedSmSBot",
+                "allow_comments": False,
+                "allow_anonymous": True,
+                "expires_in": 1800  # 30 minutes expiration
+            }
+            crypto_qty_str = f"${invoice_amount_usd} USD"
+        elif asset == "USDT":
+            payload = {
+                "asset": "USDT",
+                "amount": str(invoice_amount_usd),
+                "description": f"ModedSmS ₹{target_tokens} Balance (User {user_id})",
+                "hidden_message": f"Thank you! ₹{target_tokens} balance has been credited to your OTP Bot account.",
+                "paid_btn_name": "callback",
+                "paid_btn_url": f"https://t.me/{bot_username}" if bot_username else "https://t.me/ModedSmSBot",
+                "allow_comments": False,
+                "allow_anonymous": True,
+                "expires_in": 1800  # 30 minutes expiration
+            }
+            crypto_qty_str = f"{invoice_amount_usd} USDT"
+        else:
+            coin_rate = rates.get(asset, 1.0)
+            if coin_rate <= 0:
+                coin_rate = 1.0
+            coin_qty = float(invoice_amount_usd) / coin_rate
+            if asset in ["BTC", "ETH"]:
+                crypto_qty_str = f"{coin_qty:.8f}"
+            else:
+                crypto_qty_str = f"{coin_qty:.4f}"
+            payload = {
+                "asset": asset,
+                "amount": crypto_qty_str,
+                "description": f"ModedSmS ₹{target_tokens} Balance (User {user_id})",
+                "hidden_message": f"Thank you! ₹{target_tokens} balance has been credited to your OTP Bot account.",
+                "paid_btn_name": "callback",
+                "paid_btn_url": f"https://t.me/{bot_username}" if bot_username else "https://t.me/ModedSmSBot",
+                "allow_comments": False,
+                "allow_anonymous": True,
+                "expires_in": 1800  # 30 minutes expiration
+            }
 
         resp = self._api_call("createInvoice", payload=payload)
         if not resp.get("ok"):
@@ -186,13 +256,14 @@ class PaymentEngine:
             "chat_id": chat_id,
             "target_tokens": target_tokens,
             "target_usd": str(target_usd),
-            "invoice_amount": str(invoice_amount),
-            "asset": "USDT",
-            "status": "active",  # active, paid, settled, expired
+            "invoice_amount": str(invoice_amount_usd),
+            "asset": asset,
+            "crypto_qty": crypto_qty_str,
+            "status": "active",
             "pay_url": inv_data.get("pay_url") or inv_data.get("bot_invoice_url"),
             "mini_app_url": inv_data.get("mini_app_invoice_url"),
             "created_at": int(time.time()),
-            "expires_at": int(time.time()) + 3600,
+            "expires_at": int(time.time()) + 1800,
             "credited_tokens": 0,
             "received_amount": None,
             "settled_at": None,
@@ -209,7 +280,10 @@ class PaymentEngine:
             "mini_app_url": record["mini_app_url"],
             "target_tokens": target_tokens,
             "target_usd": str(target_usd),
-            "invoice_amount": str(invoice_amount),
+            "invoice_amount": str(invoice_amount_usd),
+            "asset": asset,
+            "crypto_qty": crypto_qty_str,
+            "expires_in_minutes": 30
         }
 
     def check_and_settle_invoice(self, invoice_id: str, db=None) -> Tuple[bool, str, Dict[str, Any]]:
