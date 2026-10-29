@@ -3,6 +3,7 @@ import time
 import logging
 import asyncio
 import threading
+from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
 
@@ -223,7 +224,8 @@ async def safe_edit_or_send(target, text: str, reply_markup=None, parse_mode="HT
             user_id = target.from_user.id if target.from_user else None
             bot = target.get_bot()
 
-            if msg and (msg.photo or msg.video or msg.document):
+            is_media = bool(msg and (getattr(msg, "photo", None) or getattr(msg, "video", None) or getattr(msg, "document", None)))
+            if is_media:
                 try:
                     await msg.delete()
                 except Exception:
