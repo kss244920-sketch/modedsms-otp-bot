@@ -263,9 +263,10 @@ class Database:
     def _get_active_orders_for_user(self, user_id: int) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
+            now = time.time()
             cursor.execute(
-                "SELECT * FROM orders WHERE user_id = ? AND status = 'PENDING' ORDER BY created_at DESC",
-                (user_id,)
+                "SELECT * FROM orders WHERE user_id = ? AND status IN ('PENDING', 'WAITING_REOTP') AND expires_at > ? ORDER BY created_at DESC",
+                (user_id, now)
             )
             return [dict(r) for r in cursor.fetchall()]
 
@@ -275,7 +276,7 @@ class Database:
     def _get_all_pending_orders(self) -> List[Dict[str, Any]]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM orders WHERE status = 'PENDING'")
+            cursor.execute("SELECT * FROM orders WHERE status IN ('PENDING', 'WAITING_REOTP')")
             return [dict(r) for r in cursor.fetchall()]
 
     async def get_all_pending_orders(self) -> List[Dict[str, Any]]:

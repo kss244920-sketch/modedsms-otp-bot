@@ -1,6 +1,8 @@
 {
-  "service_id": "srv-dbfg24lg1s2s73fmap80",
+  "api_key": "rnd_iPoVaPGzJuiJwmEM23cpVEwx0BG5",
+  "owner_id": "tea-dbau9i3rjlhs73anf3og",
   "service_name": "modedsms-otp-bot",
+  "service_id": "srv-dbfg24lg1s2s73fmap80",
   "dashboard_url": "https://dashboard.render.com/web/srv-dbfg24lg1s2s73fmap80",
   "service_url": "https://modedsms-otp-bot.onrender.com",
   "github_repo": "https://github.com/kss244920-sketch/modedsms-otp-bot"

@@ -8,6 +8,7 @@ venv/
 ENV/
 bot_database.db
 bot_database.db-journal
+crypto_invoices.json
 crypto_invoices.json.tmp
 *.log
 .env

@@ -411,10 +411,15 @@ async def execute_colour_purchase(query, site_code: str, user_id: int):
 
     # 2. Call SastaSMS API: country 22 (India), service "ot" (other/custom)
     try:
+        ot_cost = await sms_client.get_service_price(site_info["country"], site_info["service"])
+        if ot_cost is None or ot_cost <= 0:
+            ot_cost = 12.38
+        dynamic_max = round(ot_cost * 1.35, 2)
+
         result = await sms_client.get_number(
             service=site_info["service"],
             country=site_info["country"],
-            max_price=16.0  # Safe cap to maintain profit
+            max_price=dynamic_max
         )
         order_id = result["id"]
         phone_num = result["number"]
@@ -721,7 +726,8 @@ async def show_active_orders(query, user_id: int):
             [InlineKeyboardButton("📱 Buy General Number", callback_data="buy_countries:0", style="primary")],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
-        await query.edit_message_text(
+        await safe_edit_or_send(
+            query,
             text="📭 <b>No active orders found.</b>\nYou don't have any pending numbers waiting for OTP.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML"
@@ -734,16 +740,20 @@ async def show_active_orders(query, user_id: int):
     for o in orders:
         time_left = max(0, int(o["expires_at"] - now))
         mins, secs = divmod(time_left, 60)
+        otp_display = f"🔑 <b>OTP:</b> <code>{o['otp_code']}</code>" if o.get("otp_code") else "⏳ <i>Waiting for code...</i>"
         text += (
             f"📱 <b>{o['service_name']}</b> ({o['country_name']})\n"
             f"📞 <code>{o['phone_number']}</code>\n"
+            f"{otp_display}\n"
             f"⏱️ Time Left: {mins}m {secs}s\n"
             f"─────────────────────\n"
         )
-        keyboard.append([
-            InlineKeyboardButton(f"🔍 Check {o['phone_number']}", callback_data=f"order_status:{o['order_id']}", style="primary"),
-            InlineKeyboardButton("❌ Cancel", callback_data=f"order_cancel:{o['order_id']}", style="danger")
-        ])
+        row = [InlineKeyboardButton(f"🔍 Check {o['phone_number']}", callback_data=f"order_status:{o['order_id']}", style="primary")]
+        if not o.get("otp_code"):
+            row.append(InlineKeyboardButton("❌ Cancel", callback_data=f"order_cancel:{o['order_id']}", style="danger"))
+        else:
+            row.append(InlineKeyboardButton("✅ Finish", callback_data=f"order_finish:{o['order_id']}", style="success"))
+        keyboard.append(row)
 
     keyboard.append([InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")])
     await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -755,15 +765,17 @@ async def handle_order_status(query, order_id: str):
         await query.answer("Order not found.", show_alert=True)
         return
 
-    if order["status"] == "COMPLETED":
+    now = time.time()
+    if order["status"] == "COMPLETED" or now >= order["expires_at"]:
         text = (
-            f"✅ <b>Order Completed!</b>\n\n"
+            f"✅ <b>Order Summary</b>\n\n"
             f"📱 Service: {order['service_name']}\n"
             f"📞 Number: <code>{order['phone_number']}</code>\n"
-            f"🔑 <b>OTP:</b> <code>{order['otp_code']}</code>\n"
+            f"🔑 <b>Last OTP:</b> <code>{order['otp_code'] or 'None'}</code>\n"
+            f"📊 Status: <b>COMPLETED</b>"
         )
         keyboard = [
-            [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}", style="success")],
+            [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu", style="success")],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -779,52 +791,63 @@ async def handle_order_status(query, order_id: str):
         await query.answer(f"Error checking status: {e}", show_alert=True)
         return
 
+    # Check if OTP has arrived
     if status_type in ("OK", "WAIT_RETRY") and code:
-        await db.update_order_status(order_id, "COMPLETED", otp_code=code)
-        try:
-            await sms_client.set_status(order_id, 6)
-        except Exception:
-            pass
+        # Keep order alive in PENDING status so REOTP continues to work
+        await db.update_order_status(order_id, "PENDING", otp_code=code)
+        order = await db.get_order_by_order_id(order_id)
 
         text = (
             f"🎉 <b>OTP RECEIVED!</b>\n\n"
             f"📱 <b>Service:</b> {order['service_name']}\n"
             f"📞 <b>Number:</b> <code>{order['phone_number']}</code>\n\n"
             f"🔑 <b>OTP Code:</b> <code>{code}</code> (Tap to copy)\n\n"
-            f"✅ Order completed successfully!"
+            f"⏱️ <i>Validity remains active for REOTP until 20m expire!</i>"
         )
         keyboard = [
             [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}", style="success")],
-            [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu", style="primary")],
+            [InlineKeyboardButton("✅ Finish & Close", callback_data=f"order_finish:{order_id}", style="primary")],
             [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]
         ]
         await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
     elif status_type == "CANCEL":
-        await db.update_order_status(order_id, "CANCELLED")
-        await db.update_balance(order["user_id"], order["selling_price"], "REFUND", f"Refund for order #{order_id}")
-        await query.answer("Order was cancelled by provider. Refunded to wallet.", show_alert=True)
+        if not order.get("otp_code"):
+            await db.update_order_status(order_id, "CANCELLED")
+            await db.update_balance(order["user_id"], order["selling_price"], "REFUND", f"Refund for order #{order_id}")
+            await query.answer("Order was cancelled by provider. Refunded to wallet.", show_alert=True)
+        else:
+            await db.update_order_status(order_id, "COMPLETED")
+            await query.answer("Order closed by provider.", show_alert=True)
         await show_active_orders(query, order["user_id"])
         return
 
-    now = time.time()
     time_left = max(0, int(order["expires_at"] - now))
     mins, secs = divmod(time_left, 60)
 
     keyboard = [
-        [InlineKeyboardButton("🔄 Refresh Again", callback_data=f"order_status:{order_id}")],
-        [
-            InlineKeyboardButton("🔁 Request REOTP", callback_data=f"order_reotp:{order_id}"),
-            InlineKeyboardButton("❌ Cancel & Refund", callback_data=f"order_cancel:{order_id}")
-        ],
-        [InlineKeyboardButton("🔙 Active Orders", callback_data="active_orders")]
+        [InlineKeyboardButton("🔄 Refresh Again", callback_data=f"order_status:{order_id}", style="primary")]
     ]
+    if order.get("otp_code"):
+        keyboard.append([
+            InlineKeyboardButton("🔁 Request REOTP", callback_data=f"order_reotp:{order_id}", style="success"),
+            InlineKeyboardButton("✅ Finish & Close", callback_data=f"order_finish:{order_id}", style="primary")
+        ])
+    else:
+        keyboard.append([
+            InlineKeyboardButton("❌ Cancel & Refund", callback_data=f"order_cancel:{order_id}", style="danger")
+        ])
+    keyboard.append([InlineKeyboardButton("🔙 Active Orders", callback_data="active_orders", style="danger")])
+
+    status_label = "Waiting for next OTP (REOTP)..." if order["status"] == "WAITING_REOTP" else "Waiting for SMS/OTP..."
+    last_code_str = f"\n🔑 <b>Previous Code:</b> <code>{order['otp_code']}</code>\n" if order.get("otp_code") else ""
 
     text = (
-        f"⏳ <b>Waiting for OTP...</b>\n\n"
+        f"⏳ <b>{status_label}</b>\n\n"
         f"📱 <b>Service:</b> {order['service_name']}\n"
         f"📞 <b>Number:</b> <code>{order['phone_number']}</code> (Tap to copy)\n"
+        f"{last_code_str}"
         f"⏱️ <b>Time Remaining:</b> {mins}m {secs}s\n\n"
         f"💡 <i>Tip: The OTP will be automatically delivered here the moment it arrives!</i>"
     )
@@ -839,16 +862,51 @@ async def handle_order_reotp(query, order_id: str):
         await query.answer("Order not found.", show_alert=True)
         return
 
+    now = time.time()
+    if now >= order["expires_at"]:
+        await query.answer("❌ Order validity expired (20 minutes). Cannot request REOTP.", show_alert=True)
+        return
+
     try:
         success = await sms_client.request_another_otp(order_id)
         if success:
+            await db.update_order_status(order_id, "WAITING_REOTP")
             await query.answer("🔁 REOTP Requested! Waiting for the next code...", show_alert=True)
-            await db.update_order_status(order_id, "PENDING")
             await handle_order_status(query, order_id)
         else:
             await query.answer("Could not request another OTP for this number.", show_alert=True)
     except Exception as e:
         await query.answer(f"REOTP error: {e}", show_alert=True)
+
+
+async def handle_order_finish(query, order_id: str):
+    """User manually completes their activation (releases number)."""
+    order = await db.get_order_by_order_id(order_id)
+    if not order:
+        await query.answer("Order not found.", show_alert=True)
+        return
+
+    try:
+        await sms_client.set_status(order_id, 6)
+    except Exception as e:
+        logger.debug(f"Provider setStatus 6 error: {e}")
+
+    await db.update_order_status(order_id, "COMPLETED")
+    await query.answer("✅ Activation finalized! Number released.", show_alert=True)
+
+    text = (
+        f"✅ <b>Order Finalized!</b>\n\n"
+        f"📱 Service: {order['service_name']}\n"
+        f"📞 Number: <code>{order['phone_number']}</code>\n"
+        f"🔑 Final OTP: <code>{order['otp_code'] or 'N/A'}</code>\n\n"
+        f"<i>Thank you for using our service!</i>"
+    )
+    keyboard = [
+        [InlineKeyboardButton("💥 🎰 Colour Trading OTP (₹20)", callback_data="colour_trading_menu", style="success")],
+        [InlineKeyboardButton("📱 Buy General Number", callback_data="buy_countries:0", style="primary")],
+        [InlineKeyboardButton("🔙 Main Menu", callback_data="menu_main", style="danger")]
+    ]
+    await safe_edit_or_send(query, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
 async def handle_order_cancel(query, order_id: str):
@@ -857,8 +915,13 @@ async def handle_order_cancel(query, order_id: str):
         await query.answer("Order not found.", show_alert=True)
         return
 
-    if order["status"] not in ("PENDING", "COMPLETED"):
-        await query.answer(f"Cannot cancel: order is already {order['status']}", show_alert=True)
+    # Security check: Never refund if OTP was already delivered!
+    if order.get("otp_code"):
+        await query.answer("❌ Cannot cancel: OTP was already received for this number!", show_alert=True)
+        return
+
+    if order["status"] != "PENDING":
+        await query.answer(f"Cannot cancel: order is already {order['status'].lower()}", show_alert=True)
         return
 
     try:
@@ -1880,6 +1943,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         order_id = data.split(":", 1)[1]
         await handle_order_cancel(query, order_id)
 
+    elif data.startswith("order_finish:"):
+        order_id = data.split(":", 1)[1]
+        await handle_order_finish(query, order_id)
+
     # Wallet & CryptoBot Flows
     elif data == "wallet":
         await show_wallet(query, user_id)
@@ -2022,7 +2089,7 @@ async def background_otp_worker(app: Application):
     """
     Checks active orders continuously.
     Sends automatic notifications when OTP arrives.
-    Expires and refunds orders older than 20 minutes.
+    Expires and refunds orders older than 20 minutes if no OTP was received.
     """
     logger.info("Background OTP Polling Worker started.")
     while True:
@@ -2036,34 +2103,57 @@ async def background_otp_worker(app: Application):
                 expires_at = order["expires_at"]
                 selling_price = order["selling_price"]
                 phone_num = order["phone_number"]
+                had_otp = bool(order.get("otp_code"))
 
                 # 1. Check expiration
                 if now >= expires_at:
-                    try:
-                        await sms_client.cancel_number(order_id)
-                    except Exception:
-                        pass
-                    await db.update_order_status(order_id, "EXPIRED")
-                    new_bal = await db.update_balance(
-                        user_id,
-                        selling_price,
-                        "REFUND",
-                        f"Auto-refund for expired order #{order_id}"
-                    )
-                    try:
-                        await app.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"⏰ <b>Order Expired & Refunded</b>\n\n"
-                                f"Order: <code>{order_id}</code> ({phone_num})\n"
-                                f"No SMS was received within 20 minutes.\n"
-                                f"💰 <b>₹{selling_price:.2f}</b> has been automatically credited back to your wallet!\n"
-                                f"💳 New Balance: <b>₹{new_bal:.2f}</b>"
-                            ),
-                            parse_mode="HTML"
+                    if had_otp:
+                        # OTP was already delivered during the 20 minutes. Finalize with provider. No refund.
+                        try:
+                            await sms_client.set_status(order_id, 6)
+                        except Exception:
+                            pass
+                        await db.update_order_status(order_id, "COMPLETED")
+                        try:
+                            await app.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    f"⌛ <b>Order Window Closed</b>\n\n"
+                                    f"Order: <code>{order_id}</code> ({phone_num})\n"
+                                    f"The 20-minute validity period has ended.\n"
+                                    f"Your OTP was successfully delivered."
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not notify user {user_id} of completion: {e}")
+                    else:
+                        # No OTP was received within 20 minutes. Cancel with provider & auto-refund!
+                        try:
+                            await sms_client.cancel_number(order_id)
+                        except Exception:
+                            pass
+                        await db.update_order_status(order_id, "EXPIRED")
+                        new_bal = await db.update_balance(
+                            user_id,
+                            selling_price,
+                            "REFUND",
+                            f"Auto-refund for expired order #{order_id}"
                         )
-                    except Exception as e:
-                        logger.warning(f"Could not notify user {user_id} of expiry: {e}")
+                        try:
+                            await app.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    f"⏰ <b>Order Expired & Refunded</b>\n\n"
+                                    f"Order: <code>{order_id}</code> ({phone_num})\n"
+                                    f"No SMS was received within 20 minutes.\n"
+                                    f"💰 <b>₹{selling_price:.2f}</b> has been automatically credited back to your wallet!\n"
+                                    f"💳 New Balance: <b>₹{new_bal:.2f}</b>"
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.warning(f"Could not notify user {user_id} of expiry: {e}")
                     continue
 
                 # 2. Check live status from SastaSMS
@@ -2073,58 +2163,64 @@ async def background_otp_worker(app: Application):
                     logger.debug(f"Status check error for order {order_id}: {e}")
                     continue
 
+                # 3. New OTP received?
                 if status_type in ("OK", "WAIT_RETRY") and code:
-                    await db.update_order_status(order_id, "COMPLETED", otp_code=code)
-                    try:
-                        await sms_client.set_status(order_id, 6)
-                    except Exception:
-                        pass
+                    prev_code = order.get("otp_code")
+                    if code != prev_code:
+                        # Truly a new OTP! Keep order active so REOTP remains available
+                        await db.update_order_status(order_id, "PENDING", otp_code=code)
 
-                    keyboard = [
-                        [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}")],
-                        [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu")]
-                    ]
+                        keyboard = [
+                            [InlineKeyboardButton("🔁 Request Another OTP (REOTP)", callback_data=f"order_reotp:{order_id}", style="success")],
+                            [InlineKeyboardButton("✅ Finish & Close", callback_data=f"order_finish:{order_id}", style="primary")],
+                            [InlineKeyboardButton("💥 Buy Another Number", callback_data="colour_trading_menu", style="primary")]
+                        ]
 
-                    try:
-                        await app.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"🎉 <b>NEW OTP RECEIVED!</b>\n\n"
-                                f"📱 <b>Service:</b> {order['service_name']}\n"
-                                f"📞 <b>Number:</b> <code>{phone_num}</code>\n\n"
-                                f"🔑 <b>OTP Code:</b> <code>{code}</code> (Tap to copy)\n\n"
-                                f"✅ Order completed successfully!"
-                            ),
-                            reply_markup=InlineKeyboardMarkup(keyboard),
-                            parse_mode="HTML"
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to deliver OTP to user {user_id}: {e}")
+                        try:
+                            await app.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    f"🎉 <b>NEW OTP RECEIVED!</b>\n\n"
+                                    f"📱 <b>Service:</b> {order['service_name']}\n"
+                                    f"📞 <b>Number:</b> <code>{phone_num}</code>\n\n"
+                                    f"🔑 <b>OTP Code:</b> <code>{code}</code> (Tap to copy)\n\n"
+                                    f"⏱️ <i>Validity remains active for REOTP until 20 minutes expire!</i>"
+                                ),
+                                reply_markup=InlineKeyboardMarkup(keyboard),
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logger.error(f"Failed to deliver OTP to user {user_id}: {e}")
 
                 elif status_type == "CANCEL":
-                    await db.update_order_status(order_id, "CANCELLED")
-                    new_bal = await db.update_balance(
-                        user_id,
-                        selling_price,
-                        "REFUND",
-                        f"Auto-refund for cancelled order #{order_id}"
-                    )
-                    try:
-                        await app.bot.send_message(
-                            chat_id=user_id,
-                            text=(
-                                f"❌ <b>Order Cancelled & Refunded</b>\n\n"
-                                f"Order <code>{order_id}</code> was cancelled by the provider.\n"
-                                f"💰 <b>₹{selling_price:.2f}</b> refunded to your wallet.\n"
-                                f"💳 Current Balance: <b>₹{new_bal:.2f}</b>"
-                            ),
-                            parse_mode="HTML"
+                    if not had_otp:
+                        await db.update_order_status(order_id, "CANCELLED")
+                        new_bal = await db.update_balance(
+                            user_id,
+                            selling_price,
+                            "REFUND",
+                            f"Auto-refund for cancelled order #{order_id}"
                         )
-                    except Exception:
-                        pass
+                        try:
+                            await app.bot.send_message(
+                                chat_id=user_id,
+                                text=(
+                                    f"❌ <b>Order Cancelled & Refunded</b>\n\n"
+                                    f"Order <code>{order_id}</code> was cancelled by the provider.\n"
+                                    f"💰 <b>₹{selling_price:.2f}</b> refunded to your wallet.\n"
+                                    f"💳 Current Balance: <b>₹{new_bal:.2f}</b>"
+                                ),
+                                parse_mode="HTML"
+                            )
+                        except Exception:
+                            pass
+                    else:
+                        await db.update_order_status(order_id, "COMPLETED")
 
         except Exception as e:
             logger.error(f"Error in background OTP loop: {e}")
+
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 

@@ -55,8 +55,15 @@ ORDER_TIMEOUT_MINUTES = int(os.getenv("ORDER_TIMEOUT_MINUTES", "20"))
 # Background polling interval for active OTPs in seconds
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "4"))
 
-# Database path
-DB_PATH = os.getenv("DB_PATH", "bot_database.db")
+# Base directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Database path (always resolved to absolute path)
+_raw_db_path = os.getenv("DB_PATH", "bot_database.db")
+if not os.path.isabs(_raw_db_path):
+    DB_PATH = os.path.join(BASE_DIR, _raw_db_path)
+else:
+    DB_PATH = _raw_db_path
 
 # Port for cloud health check (Render / 24/7 Hosting)
 PORT = int(os.getenv("PORT", "10000"))
