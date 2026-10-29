@@ -205,44 +205,70 @@ def generate_crypto_qr(text_data: str) -> io.BytesIO:
     return bio
 
 
-async def safe_edit_or_send(query, text: str, reply_markup=None, parse_mode="HTML"):
+async def safe_edit_or_send(target, text: str, reply_markup=None, parse_mode="HTML"):
     """
-    Safely edits the current message, or if the current message is a photo/media,
-    deletes it and sends a clean new text message with the markup.
-    Guarantees back buttons and screen transitions never fail!
+    Safely edits the current message, or if the current message is a photo/media/command,
+    deletes or replies cleanly. Ignores 'Message is not modified' to avoid duplicate spam.
     """
-    msg = query.message
-    bot = query.get_bot()
-    user_id = query.from_user.id
     try:
-        if msg and (msg.photo or msg.video or msg.document):
-            try:
-                await msg.delete()
-            except Exception:
-                pass
-            return await bot.send_message(
-                chat_id=user_id,
+        # Check if target is Update
+        if hasattr(target, "callback_query") and target.callback_query:
+            target = target.callback_query
+        elif hasattr(target, "message") and not hasattr(target, "from_user"):
+            target = target.message
+
+        # If CallbackQuery:
+        if hasattr(target, "edit_message_text") and hasattr(target, "message"):
+            msg = target.message
+            user_id = target.from_user.id if target.from_user else None
+            bot = target.get_bot()
+
+            if msg and (msg.photo or msg.video or msg.document):
+                try:
+                    await msg.delete()
+                except Exception:
+                    pass
+                if user_id:
+                    return await bot.send_message(
+                        chat_id=user_id,
+                        text=text,
+                        reply_markup=reply_markup,
+                        parse_mode=parse_mode
+                    )
+            else:
+                try:
+                    return await target.edit_message_text(
+                        text=text,
+                        reply_markup=reply_markup,
+                        parse_mode=parse_mode
+                    )
+                except Exception as e:
+                    err_str = str(e).lower()
+                    if "message is not modified" in err_str:
+                        return
+                    if user_id:
+                        return await bot.send_message(
+                            chat_id=user_id,
+                            text=text,
+                            reply_markup=reply_markup,
+                            parse_mode=parse_mode
+                        )
+
+        # If Message object:
+        if hasattr(target, "reply_text"):
+            return await target.reply_text(
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
-        else:
-            return await query.edit_message_text(
+        elif hasattr(target, "send_message"):
+            return await target.send_message(
                 text=text,
                 reply_markup=reply_markup,
                 parse_mode=parse_mode
             )
     except Exception as e:
-        logger.warning(f"safe_edit_or_send fallback to send_message: {e}")
-        try:
-            return await bot.send_message(
-                chat_id=user_id,
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=parse_mode
-            )
-        except Exception:
-            pass
+        logger.warning(f"safe_edit_or_send fallback error: {e}")
 
 
 def is_admin(user_id: int) -> bool:
@@ -1837,7 +1863,7 @@ async def show_history(query, user_id: int):
     orders = await db.get_user_order_history(user_id, limit=8)
     if not orders:
         keyboard = [[InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main", style="danger")]]
-        await query.edit_message_text("📋 <b>No past orders found.</b>", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+        await safe_edit_or_send(query, "📋 <b>No past orders found.</b>", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         return
 
     text = "📋 <b>Your Recent Orders:</b>\n\n"
@@ -1886,7 +1912,6 @@ async def show_help(query):
 
 async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     data = query.data
     user_id = update.effective_user.id
 
@@ -2080,6 +2105,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             req_id = int(data.split(":")[1])
             await handle_recharge_decision(query, req_id, False, context)
 
+    # Ensure query loading wheel is dismissed if not already answered
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
 
 # -------------------------------------------------------------
 # Background OTP Polling Worker
@@ -2222,7 +2253,14 @@ async def background_otp_worker(app: Application):
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await show_help(update.message or update.callback_query)
+
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_admin(update.effective_user.id):
+        await show_admin_panel(update.message or update.callback_query)
 
 
 async def post_init(application: Application):
@@ -2253,8 +2291,8 @@ def main():
 
     # Commands
     app.add_handler(CommandHandler("start", start_command))
-    app.add_handler(CommandHandler("help", lambda u, c: show_help(u.message)))
-    app.add_handler(CommandHandler("admin", lambda u, c: show_admin_panel(u.message) if is_admin(u.effective_user.id) else None))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("admin", admin_command))
     app.add_handler(CommandHandler("addbal", admin_add_balance))
     app.add_handler(CommandHandler("deductbal", admin_deduct_balance))
     app.add_handler(CommandHandler("setmargin", admin_set_margin))

@@ -402,7 +402,7 @@ class Database:
             cursor.execute("SELECT COUNT(*) as total_orders, SUM(selling_price) as total_volume, SUM(selling_price - cost_price) as total_profit FROM orders WHERE status = 'COMPLETED'")
             completed = cursor.fetchone()
 
-            cursor.execute("SELECT COUNT(*) as active_orders FROM orders WHERE status = 'PENDING'")
+            cursor.execute("SELECT COUNT(*) as active_orders FROM orders WHERE status IN ('PENDING', 'WAITING_REOTP')")
             active_orders = cursor.fetchone()["active_orders"]
 
             return {
