@@ -94,6 +94,24 @@ DEFAULT_BASE_PRICES = {
 
 class CloudHealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path.startswith("/backup_and_pin"):
+            try:
+                from audit_cloud_manager import dispatch_and_pin_backup
+                res = dispatch_and_pin_backup(trigger_reason="3-Hour Scheduled Restart Checkpoint")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                import json
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                import json
+                self.wfile.write(json.dumps({"success": False, "error": str(e)}).encode("utf-8"))
+                return
+
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
@@ -2271,6 +2289,13 @@ async def post_init(application: Application):
     TELEGRAM_APP = application
     # Start Cloud Health Server
     start_health_server(PORT)
+    # Start Cloud Backup, Pin & Disaster Recovery Daemon
+    try:
+        from audit_cloud_manager import start_backup_daemon
+        start_backup_daemon(interval_seconds=15 * 60)
+        logger.info("☁️ SastaSMS Auto Cloud Backup & Pin Daemon active! ✅")
+    except Exception as e:
+        logger.warning(f"Error starting backup daemon: {e}")
     # Start CryptoBot background payment poller
     crypto_engine.start_background_poller(db=db, poll_interval=5)
     # Start background OTP polling worker
