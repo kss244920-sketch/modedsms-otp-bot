@@ -94,6 +94,14 @@ DEFAULT_BASE_PRICES = {
 
 class CloudHealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path in ("/is_busy", "/busy"):
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            import json
+            self.wfile.write(json.dumps({"busy": False, "process": "Idle"}).encode("utf-8"))
+            return
+
         if self.path.startswith("/backup_and_pin"):
             try:
                 from audit_cloud_manager import dispatch_and_pin_backup
@@ -2292,7 +2300,7 @@ async def post_init(application: Application):
     # Start Cloud Backup, Pin & Disaster Recovery Daemon
     try:
         from audit_cloud_manager import start_backup_daemon
-        start_backup_daemon(interval_seconds=15 * 60)
+        start_backup_daemon(interval_seconds=3 * 3600)
         logger.info("☁️ SastaSMS Auto Cloud Backup & Pin Daemon active! ✅")
     except Exception as e:
         logger.warning(f"Error starting backup daemon: {e}")
