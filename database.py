@@ -2,15 +2,34 @@ import sqlite3
 import time
 import asyncio
 import os
-from typing import Optional, List, Dict, Any
-from config import DB_PATH, DEFAULT_MARGIN_PERCENT, DEFAULT_MARGIN_FLAT, DEFAULT_UPI_ID, DEFAULT_UPI_NAME
+import logging
+from typing import Optional, List, Dict, Any, Union
+from config import (
+    DB_PATH,
+    DEFAULT_MARGIN_PERCENT,
+    DEFAULT_MARGIN_FLAT,
+    DEFAULT_UPI_ID,
+    DEFAULT_UPI_NAME,
+    TURSO_DATABASE_URL,
+    TURSO_AUTH_TOKEN,
+)
+from turso_client import TursoConnection
+
+logger = logging.getLogger("Database")
 
 class Database:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
+        self.use_turso = bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
+        if self.use_turso:
+            logger.info("⚡ Database running on Turso Cloud SQLite (Zero-Data-Loss Persistent Cloud)!")
+        else:
+            logger.info(f"📁 Database running on local SQLite file: {self.db_path}")
         self._init_db()
 
-    def _get_connection(self) -> sqlite3.Connection:
+    def _get_connection(self) -> Union[TursoConnection, sqlite3.Connection]:
+        if self.use_turso:
+            return TursoConnection(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
         conn = sqlite3.connect(self.db_path, timeout=15.0)
         conn.row_factory = sqlite3.Row
         return conn

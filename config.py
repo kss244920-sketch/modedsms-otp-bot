@@ -65,5 +65,9 @@ if not os.path.isabs(_raw_db_path):
 else:
     DB_PATH = _raw_db_path
 
+# Turso Cloud SQLite Configuration (Zero Data Loss)
+TURSO_DATABASE_URL = os.getenv("TURSO_DATABASE_URL", "libsql://1-owmarco.aws-ap-south-1.turso.io")
+TURSO_AUTH_TOKEN = os.getenv("TURSO_AUTH_TOKEN", "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTMzNzA5NjQsImlkIjoiMDFhMThkM2QtMDQwMS03ODkyLTljY2YtNGQxMjViODQwMmRhIiwia2lkIjoiV3ZrOXBrR1dPdkdaTFEwdmJiSHpaTzFwVHVvRXVMb0RfNjFWejgwSy1XcyIsInJpZCI6ImViMjlkMzdlLTdhZWMtNGM3Ny1iNWJlLTU2ZjJkYmJiMmI2MyJ9.EWy-SZ2NtLCNxpHDp8Y9Ln2h6m3lzUExbNVPGciCRxCKBDP7T-TUZEx-zI8adakMDfYu1E9Al_a1IQOGyHt-Ag")
+
 # Port for cloud health check (Render / 24/7 Hosting)
 PORT = int(os.getenv("PORT", "10000"))
